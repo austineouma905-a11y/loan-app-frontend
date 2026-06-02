@@ -7,6 +7,9 @@ function AuthView({
   password, setPassword, confirmPassword, setConfirmPassword, 
   handleLoginSubmit, handleSignUpSubmit 
 }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   if (authMode === 'login') {
     return (
       <div className="auth-view">
@@ -17,10 +20,28 @@ function AuthView({
             <label>Email: </label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
           </div>
+          
           <div className="input-group">
             <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="enter password" required />
+            <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input 
+                type={showPassword ? "text" : "password"} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                placeholder="enter password" 
+                style={{ width: '100%', paddingRight: '40px' }}
+                required 
+              />
+              <span 
+                className="password-toggle-eye" 
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+              >
+                {showPassword ? '👽' : '👁️'}
+              </span>
+            </div>
           </div>
+          
           <button type="submit" className="auth-submit-btn">Login</button>
         </form>
         <p className="auth-toggle-text">
@@ -51,14 +72,49 @@ function AuthView({
           <label>Phone Number</label>
           <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="enter phone number" required />
         </div>
+        
         <div className="input-group">
           <label>Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" required />
+          <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input 
+              type={showPassword ? "text" : "password"} 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              placeholder="password" 
+              style={{ width: '100%', paddingRight: '40px' }}
+              required 
+            />
+            <span 
+              className="password-toggle-eye" 
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+            >
+              {showPassword ? '👽' : '👁️'}
+            </span>
+          </div>
         </div>
+        
         <div className="input-group">
           <label>Confirm Password</label>
-          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="confirm password" required />
+          <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input 
+              type={showConfirmPassword ? "text" : "password"} 
+              value={confirmPassword} 
+              onChange={(e) => setConfirmPassword(e.target.value)} 
+              placeholder="confirm password" 
+              style={{ width: '100%', paddingRight: '40px' }}
+              required 
+            />
+            <span 
+              className="password-toggle-eye" 
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+            >
+              {showConfirmPassword ? '👽' : '👁️'}
+            </span>
+          </div>
         </div>
+        
         <button type="submit" className="auth-submit-btn">Sign-Up</button>
       </form>
       <p className="auth-toggle-text">
@@ -72,7 +128,7 @@ export default function App() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [notification, setNotification] = useState({ message: '', type: '' });
-  const [isMenuOpen, setIsMenuOpen] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authMode, setAuthMode] = useState('login');
@@ -86,8 +142,6 @@ export default function App() {
   const [customAmount, setCustomAmount] = useState('');
   const [paymentMode, setPaymentMode] = useState('Mobile'); 
   const [disbursementAccount, setDisbursementAccount] = useState('');
-  
-  // --- Dynamic Balance State ---
   const [loanBalance, setLoanBalance] = useState(0);
 
   const [userProfile, setUserProfile] = useState({
@@ -115,6 +169,7 @@ export default function App() {
     setAuthMode('login');
     setLoanBalance(0);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
+    setIsMenuOpen(false);
     triggerAlert('Logged out successfully.', 'logout');
   };
 
@@ -124,7 +179,8 @@ export default function App() {
       return;
     }
     try {
-      const response = await fetch('http://localhost:5000/api/signup', {
+      const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const response = await fetch(`${BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firstName, lastName, email, phone, password })
@@ -133,7 +189,7 @@ export default function App() {
       if (response.ok) {
         setIsLoggedIn(true);
         setCurrentView('dashboard_home');
-        setLoanBalance(0); // Brand new profiles default to KES 0.00
+        setLoanBalance(0);
         setUserProfile({
           id: data.userId,
           name: `${firstName} ${lastName}`.trim(),
@@ -153,7 +209,8 @@ export default function App() {
 
   const handleLoginSubmit = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/login', {
+      const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const response = await fetch(`${BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -162,7 +219,7 @@ export default function App() {
       if (response.ok) {
         setIsLoggedIn(true);
         setCurrentView('dashboard_home');
-        setLoanBalance(data.loanBalance || 0); // Sets balance from backend payload
+        setLoanBalance(data.loanBalance || 0);
         setUserProfile({
           id: data.userId,
           name: data.name,
@@ -186,6 +243,12 @@ export default function App() {
     setCustomAmount('');
     setDisbursementAccount('');
     setCurrentView('apply_loan_form');
+    if (window.innerWidth <= 768) setIsMenuOpen(false);
+  };
+
+  const handleMobileNavClick = (viewName) => {
+    setCurrentView(viewName);
+    if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
 
   const handleLoanRequestSubmit = async (e) => {
@@ -198,7 +261,8 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('http://localhost:5000/api/loans', {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://192.168.100.66:5000';
+      const response = await fetch(`${BASE_URL}/api/loans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,10 +277,9 @@ export default function App() {
       const data = await response.json();
 
       if (response.ok) {
-        // Dynamically updates dashboard context balance to include newly added amount
         setLoanBalance(data.newTotalBalance); 
         triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} processed securely!`, 'success');
-        setCurrentView('dashboard_home'); // Navigates instantly to Dashboard to see new values
+        setCurrentView('dashboard_home'); 
       } else {
         triggerAlert(data.message || 'Error processing loan request on backend server.', 'logout');
       }
@@ -236,12 +299,12 @@ export default function App() {
               {isMenuOpen ? '✕' : '☰'}
             </button>
           )}
-          <h1><span className="text-blue">BUSINESS</span> & <span className="text-red">LOAN INSTITUTION</span></h1>
+          <h1><span className="text-blue">BUSINESS</span> & <span className="text-red">LOAN</span></h1>
         </div>
         {isLoggedIn && (
           <div className="header-right-nav">
             <div className="signed-in-block">
-              <div className="user-profile-avatar" onClick={() => setCurrentView('profile')}>{userProfile.name.charAt(0)}</div>
+              <div className="user-profile-avatar" onClick={() => handleMobileNavClick('profile')}>{userProfile.name.charAt(0)}</div>
               <button className="header-logout-btn" onClick={handleLogout}>Log Out</button>
             </div>
           </div>
@@ -261,12 +324,14 @@ export default function App() {
           </div>
         ) : (
           <div className="portal-frame-container">
+            {isMenuOpen && <div className="sidebar-mobile-overlay" onClick={() => setIsMenuOpen(false)}></div>}
+            
             <aside className={`sidebar ${isMenuOpen ? 'open' : 'closed'}`}>
               <nav className="nav-links">
-                <button className={`nav-item ${currentView === 'dashboard_home' ? 'active' : ''}`} onClick={() => setCurrentView('dashboard_home')}>Dashboard</button>
-                <button className={`nav-item ${currentView === 'profile' ? 'active' : ''}`} onClick={() => setCurrentView('profile')}>My Profile</button>
-                <button className={`nav-item ${currentView === 'loans' || currentView === 'apply_loan_form' ? 'active' : ''}`} onClick={() => setCurrentView('loans')}>Loans</button>
-                <button className={`nav-item ${currentView === 'loan_status' ? 'active' : ''}`} onClick={() => setCurrentView('loan_status')}>Loan Status</button>
+                <button className={`nav-item ${currentView === 'dashboard_home' ? 'active' : ''}`} onClick={() => handleMobileNavClick('dashboard_home')}>Dashboard</button>
+                <button className={`nav-item ${currentView === 'profile' ? 'active' : ''}`} onClick={() => handleMobileNavClick('profile')}>My Profile</button>
+                <button className={`nav-item ${currentView === 'loans' || currentView === 'apply_loan_form' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loans')}>Loans</button>
+                <button className={`nav-item ${currentView === 'loan_status' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loan_status')}>Loan Status</button>
                 
                 <div className="collapsible-nav-group">
                   <button className="nav-item sub-toggle" onClick={() => setRepayDropdown(!repayDropdown)}>
@@ -274,12 +339,12 @@ export default function App() {
                   </button>
                   {repayDropdown && (
                     <div className="sub-menu-dropdown">
-                      <button className={`sub-nav-item ${currentView === 'repay_fully' ? 'active' : ''}`} onClick={() => setCurrentView('repay_fully')}>Fully Repay</button>
-                      <button className={`sub-nav-item ${currentView === 'repay_partially' ? 'active' : ''}`} onClick={() => setCurrentView('repay_partially')}>Partially Repay</button>
+                      <button className={`sub-nav-item ${currentView === 'repay_fully' ? 'active' : ''}`} onClick={() => handleMobileNavClick('repay_fully')}>Fully Repay</button>
+                      <button className={`sub-nav-item ${currentView === 'repay_partially' ? 'active' : ''}`} onClick={() => handleMobileNavClick('repay_partially')}>Partially Repay</button>
                     </div>
                   )}
                 </div>
-                <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => setCurrentView('settings')}>⚙ Settings</button>
+                <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => handleMobileNavClick('settings')}>⚙ Settings</button>
                 <button className="nav-item sidebar-logout-btn" onClick={handleLogout}>Logout</button>
               </nav>
             </aside>
@@ -336,31 +401,29 @@ export default function App() {
               {currentView === 'apply_loan_form' && selectedLoan && (
                 <div className="view-fade-in action-panel-card" style={{ maxWidth: '600px', margin: '0 auto' }}>
                   <h2>Apply for {selectedLoan.name}</h2>
-                  <p>Interest Rate: <strong>{selectedLoan.rate}</strong></p>
+                  <p className="rate" style={{color: '#f3ebec',}}>Interest Rate: <strong>{selectedLoan.rate}</strong></p>
                   
                   <form onSubmit={handleLoanRequestSubmit} className="auth-form">
                     <div className="input-group">
                       <label>Select Loan Amount (KES)</label>
-                      <div style={{ display: 'flex', gap: '10px', margin: '10px 0', flexWrap: 'wrap' }}>
+                      <div className="loan-amount-button-group">
                         {selectedLoan.amounts.map((amt) => (
                           <button
-                            type="button" key={amt} className="auth-submit-btn"
+                            type="button" key={amt} className="amount-selection-btn"
                             onClick={() => { setAppliedAmount(amt); setCustomAmount(''); }}
                             style={{
-                              flex: '1 1 calc(25% - 10px)', minWidth: '90px', padding: '12px',
-                              backgroundColor: appliedAmount === amt ? '#3498db' : '#f4f6f7',
-                              color: appliedAmount === amt ? '#fff' : '#333', border: '1px solid #ccc'
+                              backgroundColor: appliedAmount === amt ? '#b63e8c' : '#f4f6f7',
+                              color: appliedAmount === amt ? '#fff' : '#333'
                             }}
                           >
                             {amt.toLocaleString()}
                           </button>
                         ))}
                         <button
-                          type="button" className="auth-submit-btn" onClick={() => setAppliedAmount('custom')}
+                          type="button" className="amount-selection-btn" onClick={() => setAppliedAmount('custom')}
                           style={{
-                            flex: '1 1 calc(25% - 10px)', minWidth: '90px', padding: '12px',
                             backgroundColor: appliedAmount === 'custom' ? '#3498db' : '#f4f6f7',
-                            color: appliedAmount === 'custom' ? '#fff' : '#333', border: '1px solid #ccc'
+                            color: appliedAmount === 'custom' ? '#fff' : '#333'
                           }}
                         >Custom</button>
                       </div>
@@ -398,8 +461,8 @@ export default function App() {
                       />
                     </div>
 
-                    <div style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
-                      <button type="button" className="auth-submit-btn" style={{ backgroundColor: '#7f8c8d' }} onClick={() => setCurrentView('loans')}>Cancel</button>
+                    <div className="form-action-buttons">
+                      <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setCurrentView('loans')}>Cancel</button>
                       <button type="submit" className="auth-submit-btn">Request Loan</button>
                     </div>
                   </form>
@@ -410,7 +473,7 @@ export default function App() {
                 <div className="view-fade-in">
                   <h2>Current Loan Application Status</h2>
                   <div className="status-tracker-card-layout">
-                    <div className="status-badge indicator disbursement_in_progress">Disbursement In Progress</div>
+                    <div className="status-badge indicator disbursement_in_progress">Disbursed</div>
                     <p style={{ marginTop: '15px', fontWeight: '500', color: '#2c3e50' }}>
                       Status text: <span className="status-highlight-text" style={{ color: '#e67e22', fontWeight: 'bold' }}>Disbursement In Progress</span>
                     </p>
@@ -440,7 +503,7 @@ export default function App() {
                       <label>Enter Amount To Pay (KES)</label>
                       <input type="number" placeholder="Enter Amount" />
                     </div>
-                    <button className="pay-now-action-btn" style={{ width: '100%', backgroundColor: '#eba22d' }} onClick={() => triggerAlert('Processing partial amortization request...', 'success')}>PAY</button>
+                    <button className="pay-now-action-btn" style={{ width: '100%', backgroundColor: '#eba22d' }} onClick={() => triggerAlert('Processing...', 'success')}>PAY</button>
                   </div>
                 </div>
               )}
@@ -449,6 +512,8 @@ export default function App() {
                 <div className="view-fade-in">
                   <h2>Preferences ⚙</h2>
                   <p>Database Connector State: <strong>MySQL Connection (Port 3307)</strong></p>
+                  <button>Change Password</button>
+                  <button>Update Profile</button>
                 </div>
               )}
             </main>

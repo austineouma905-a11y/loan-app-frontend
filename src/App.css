@@ -9,8 +9,8 @@ body {
 .main-layout-wrapper {
   width: 75% !important;       
   margin: 40px auto !important;
-  min-height: 70vh;
-  background-color: #3ab9c2;
+  min-height: calc(100vh - 70vh);
+  background-color: #151839;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   overflow: hidden;
@@ -214,12 +214,20 @@ body {
 .main-content-window {
   flex: 1;
   padding: 40px;
-  background: linear-gradient(135deg, #4044b5 0%, #050e48 100%);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #373859 0%, #0c0f28 100%);
   background-color: rgb(41, 41, 96);
   overflow-y: auto;
+  min-height: 100%;
 }
 
 .view-fade-in {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  align-items: center;
   animation: fadeInEffect 0.4s ease-out forwards;
 }
 
@@ -230,6 +238,94 @@ body {
 
 .view-fade-in h2 {
   color: whitesmoke;
+}
+
+.password-toggle-eye:hover {
+  transform: scale(1.15);
+  transition: transform 0.2s ease;
+}
+
+.loan-amount-button-group {
+  display: flex; 
+  gap: 10px; 
+  margin: 10px 0; 
+  flex-wrap: wrap;
+}
+
+.amount-selection-btn {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 90px; 
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.form-action-buttons {
+  display: flex;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.cancel-btn {
+  background-color: #7f8c8d !important;
+}
+
+@media screen and (max-width: 768px) {
+  .header h1 {
+    font-size: 1.1rem;
+  }
+
+  .portal-frame-container {
+    position: relative;
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 60px; 
+    left: 0;
+    bottom: 0;
+    width: 260px;
+    background-color: #2c3e50;
+    z-index: 999;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 10px rgba(0,0,0,0.2);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar.closed {
+    transform: translateX(-100%);
+  }
+
+  .sidebar-mobile-overlay {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 998;
+  }
+
+  .main-content-window {
+    padding: 15px;
+    width: 100%;
+  }
+  .loan-grid {
+    display: grid;
+    grid-template-columns: 1fr !important; 
+    gap: 15px;
+  }
+
+  .form-action-buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 
 .alert-banner.error-red {
@@ -299,7 +395,7 @@ body {
 .monetary-amount-display {
   font-size: 36px;
   font-weight: 800;
-  color: #2c3e50;
+  color: #dba63b;
   margin: 15px 0 25px 0;
   letter-spacing: -1px;
 }
@@ -318,7 +414,7 @@ body {
 }
 
 .pay-now-action-btn:hover {
-  background-color: #085b05;
+  background-color: #141f42;
   transform: translateY(-2px);
 }
 
@@ -342,6 +438,22 @@ body {
   width: 250px;
   font-weight: bold;
   color: #f1f5f5;
+}
+
+.view-fade-in button {
+  border-radius: 4px;
+  margin: 0;
+  border: none;
+  margin-top: 10px;
+  padding: 5px;
+  color: whitesmoke;
+  background-color: #4fb7d6;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.view-fade-in p {
+  color: rgb(228, 153, 23);
 }
 
 .detail-row .val {
