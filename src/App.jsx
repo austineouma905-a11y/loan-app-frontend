@@ -179,7 +179,7 @@ export default function App() {
       return;
     }
     try {
-      const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -209,7 +209,7 @@ export default function App() {
 
   const handleLoginSubmit = async () => {
     try {
-      const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,7 +261,7 @@ export default function App() {
     }
 
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://192.168.100.66:5000';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/loans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
