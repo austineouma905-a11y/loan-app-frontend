@@ -16,6 +16,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 
 .header {
@@ -38,15 +39,13 @@ body {
 }
 
 .header-left-group h1 {
-    display: flex;
-    margin: 0;
-    font-size: 1.3rem;
-    font-weight: bold;
-    align-items: center;
-   flex-wrap: nowrap;
-   white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  display: flex;
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: bold;
+  align-items: center;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 
@@ -82,22 +81,22 @@ body {
 }
 
 @media (max-width: 768px) {
-    .header-left-group h1 {
-        font-size: 1rem;
-    }
-    .header {
-        padding: 10px 12px;
-    }
+  .header-left-group h1 {
+    font-size: 1.1rem;
+  }
+  .header-right-nav {
+    margin-left: 5px;
+  }
 }
 
-@media (max-width: 580px) {
-    .header-left-group h1 .text-red {
-        display: none; 
-    }
-    
-    .header-left-group h1 {
-        font-size: 0.95rem;
-    }
+@media (max-width: 420px) {
+  .header-left-group h1 {
+    font-size: 0.9rem;
+  }
+  .header-logout-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
 }
 
 .user-profile-avatar {
@@ -273,8 +272,10 @@ body {
 }
 
 @media screen and (max-width: 768px) {
-  .header h1 {
-    font-size: 1.1rem;
+  .main-layout-wrapper {
+    width: 100% !important;
+    margin: 0px auto !important;
+    border-radius: 0px;
   }
 
   .portal-frame-container {
@@ -419,19 +420,38 @@ body {
 }
 
 .profile-details-table-grid {
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  background-color: #7969df;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-top: 20px;
+  gap: 12px;
+  box-sizing: border-box;
 }
 
 .detail-row {
   display: flex;
-  background-color: #59aac8;
-  padding: 16px 24px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: whitesmoke;
+  width: 100%;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+}
+.detail-row .val {
+  word-break: break-all; /* Prevents long emails/account IDs from shifting layouts */
+  text-align: right;
+}
+
+@media (max-width: 480px) {
+  .detail-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .detail-row .val {
+    text-align: left;
+    margin-top: 4px;
+  }
 }
 
 .detail-row .label {
@@ -551,7 +571,6 @@ body {
   line-height: 1.4;
 }
 
-/* Form containment alignment matrix */
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -630,6 +649,12 @@ body {
   margin-left: 3px;
 }
 
+.auth-view, .action-panel-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+
 .auth-link:hover {
   text-decoration: underline;
   color: #2980b9;
@@ -701,7 +726,6 @@ body {
     color: red;
 }
 
-/* Bonus Apply button vector setup */
 .loan-apply-btn {
     background-color: #2c3e50;
     color: #ffffff;
