@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import './App.css';
 
 function AuthView({ 
@@ -84,23 +85,13 @@ function AuthView({
               style={{ width: '100%', paddingRight: '40px' }}
               required 
             />
-            <span
-  className="password-toggle-eye"
-  onClick={() => setShowPassword(!showPassword)}
-  style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center' }}
->
-  {showPassword ? (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-      <circle cx="12" cy="12" r="3"></circle>
-    </svg>
-  ) : (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-      <line x1="1" y1="1" x2="23" y2="23"></line>
-    </svg>
-  )}
-</span>
+            <span 
+              className="password-toggle-eye" 
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+            >
+              {showPassword ? '👽' : '👁️'}
+            </span>
           </div>
         </div>
         
@@ -115,23 +106,13 @@ function AuthView({
               style={{ width: '100%', paddingRight: '40px' }}
               required 
             />
-            <span
-  className="password-toggle-eye"
-  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-  style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center' }}
->
-  {showConfirmPassword ? (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-      <circle cx="12" cy="12" r="3"></circle>
-    </svg>
-  ) : (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-      <line x1="1" y1="1" x2="23" y2="23"></line>
-    </svg>
-  )}
-</span>
+            <span 
+              className="password-toggle-eye" 
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+            >
+              {showConfirmPassword ? '👽' : '👁️'}
+            </span>
           </div>
         </div>
         
@@ -172,6 +153,18 @@ export default function App() {
     loanId: "LNX-PENDING"
   });
 
+  // 📥 STEP 1: M-PESA SPECIFIC HOOKS AND STATES 
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [mpesaPhone, setMpesaPhone] = useState('');
+
+  // Automatically load user profile phone into the M-Pesa field upon successful login
+  React.useEffect(() => {
+    if (userProfile.phone) {
+      setMpesaPhone(userProfile.phone);
+    }
+  }, [userProfile.phone]);
+
   const loanTypes = [
     { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '5.5% p.a.', amounts: [5000, 10000, 25000] },
     { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '10% p.a.', amounts: [50000, 100000, 250000] },
@@ -183,6 +176,36 @@ export default function App() {
     setTimeout(() => setNotification({ message: '', type: '' }), 3500);
   };
 
+  // 📥 M-PESA STK PUSH TRIGGER HANDLER
+  const handleMpesaPaymentSubmit = async (e) => {
+    e.preventDefault();
+    if (loanBalance <= 0) {
+      triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
+      return;
+    }
+    setPaymentLoading(true);
+    setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
+
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
+        phoneNumber: mpesaPhone,
+        amount: loanBalance
+      });
+
+      if (response.status === 200) {
+        setPaymentStatus('📲 STK Push Prompt Sent! Verify your phone and enter your M-Pesa PIN.');
+        triggerAlert('M-Pesa validation transaction successfully broadcasted!', 'success');
+      }
+    } catch (error) {
+      console.error("M-Pesa error trace:", error);
+      setPaymentStatus('❌ Failed to wake up connection payload engines.');
+      triggerAlert('STK Push submission collapsed.', 'logout');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentView('dashboard_home');
@@ -190,6 +213,7 @@ export default function App() {
     setLoanBalance(0);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
     setIsMenuOpen(false);
+    setPaymentStatus('');
     triggerAlert('Logged out successfully.', 'logout');
   };
 
@@ -229,7 +253,7 @@ export default function App() {
 
   const handleLoginSubmit = async () => {
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const BASE_URL = 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -281,7 +305,7 @@ export default function App() {
     }
 
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const BASE_URL = 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/loans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -323,7 +347,7 @@ export default function App() {
             <span className="text-blue">AUSTINE'S</span>
             {" "}
             <span className="text-red">LOAN BUSINESS</span>
-            </h1>
+          </h1>
         </div>
         {isLoggedIn && (
           <div className="header-right-nav">
@@ -388,6 +412,48 @@ export default function App() {
                       KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
                     <button className="pay-now-action-btn" onClick={() => { setRepayDropdown(true); setCurrentView('repay_fully'); }}>Pay Now</button>
+                  </div>
+                </div>
+              )}
+
+              {currentView === 'repay_fully' && (
+                <div className="view-fade-in action-panel-card">
+                  <h2>Full Settlement Portal</h2>
+                  <p className="discount" style={{color: 'white'}}>Clear outstanding loan balance balances on Time so that your loan rates gets Discount.</p>
+                  
+                  <div className="repay-box" style={{ background: '#32bcde', padding: '20px', borderRadius: '8px', border: '1px solid #edcdcc', marginTop: '15px' }}>
+                    <p style={{ color: '#fff', fontSize: '16px', marginBottom: '15px' }}>
+                      Current Loan Balance Total: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                    </p>
+                    
+                    <form onSubmit={handleMpesaPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <label style={{ color: '#fff', fontSize: '11px', marginBottom: '4px', fontWeight: 'bold' }}>M-PESA PHONE NUMBER</label>
+                        <input 
+                          type="tel"
+                          value={mpesaPhone}
+                          onChange={(e) => setMpesaPhone(e.target.value)}
+                          placeholder="e.g. 0712345678"
+                          required
+                          style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', fontSize: '14px', color: '#333' }}
+                        />
+                      </div>
+                      
+                      <button 
+                        type="submit" 
+                        className="pay-now-action-btn" 
+                        style={{ width: '100%', marginTop: '5px' }} 
+                        disabled={paymentLoading}
+                      >
+                        {paymentLoading ? 'PROCESSING PUSH...' : 'PAY VIA M-PESA'}
+                      </button>
+                    </form>
+
+                    {paymentStatus && (
+                      <p style={{ marginTop: '15px', fontSize: '13px', color: '#151839', fontWeight: 'bold', background: 'rgba(255,255,255,0.7)', padding: '8px', borderRadius: '4px' }}>
+                        {paymentStatus}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -502,17 +568,6 @@ export default function App() {
                       Status text: <span className="status-highlight-text" style={{ color: '#e67e22', fontWeight: 'bold' }}>Disbursement In Progress</span>
                     </p>
                     <p>Your application verification credentials matched successfully. Settlement engines are active.</p>
-                  </div>
-                </div>
-              )}
-
-              {currentView === 'repay_fully' && (
-                <div className="view-fade-in action-panel-card">
-                  <h2>Full Settlement Portal</h2>
-                  <p className="discount" style={{color: 'white'}}>Clear outstanding loan balance balances on Time so that your loan rates gets Discount.</p>
-                  <div className="repay-box" style={{ background: '#32bcde', padding: '20px', borderRadius: '8px', border: '1px solid #edcdcc', marginTop: '15px' }}>
-                    <p>Current Loan Balance Total: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
-                    <button className="pay-now-action-btn" style={{ width: '100%' }} onClick={() => triggerAlert(loanBalance > 0 ? 'Processing complete settlement engine connection...' : 'No active balance to settle.', loanBalance > 0 ? 'success' : 'logout')}>PAY</button>
                   </div>
                 </div>
               )}
