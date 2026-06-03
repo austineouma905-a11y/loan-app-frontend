@@ -299,7 +299,10 @@ export default function App() {
               {isMenuOpen ? '✕' : '☰'}
             </button>
           )}
-          <h1><span className="text-blue">AUSTINE'S</span><span className="text-red">LOAN BUSINESS</span></h1>
+          <h1>
+            <span className="text-blue">AUSTINE'S</span> {" "}
+            <span className="text-red">LOAN BUSINESS</span>
+            </h1>
         </div>
         {isLoggedIn && (
           <div className="header-right-nav">
