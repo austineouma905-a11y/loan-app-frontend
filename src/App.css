@@ -338,26 +338,40 @@ body {
   }
 }
 
+.alert-banner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  padding: 16px 32px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: bottomSlideUp 0.25s ease-out;
+}
+
 .alert-banner.error-red {
   background-color: #d32f2f;
   color: #ffffff;
-  padding: 12px 24px;
-  text-align: center;
-  font-weight: 600;
-  font-size: 14px;
-  position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  animation: slideDownIn 0.2s ease-out;
 }
 
-@keyframes slideDownIn {
-  from { top: -50px; opacity: 0; }
-  to { top: 20px; opacity: 1; }
+.alert-banner.info, .alert-banner.processing {
+  background-color: #2980b9;
+  color: #ffffff;
+}
+
+@keyframes bottomSlideUp {
+  from { 
+    opacity: 0; 
+    transform: translate(-50%, -40%) scale(0.9);
+  }
+  to { 
+    opacity: 1; 
+    transform: translate(-50%, -50%) scale(1); 
+  }
 }
 
 .welcome-banner {
@@ -411,7 +425,7 @@ body {
 }
 
 .pay-now-action-btn {
-  background-color: #d99125;
+  background-color: #da1e09 !important;
   color: white;
   border: none;
   padding: 12px 35px;
@@ -419,12 +433,12 @@ body {
   font-weight: bold;
   border-radius: 25px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(46, 204, 113, 0.3);
+  box-shadow: 0 4px 12px rgba(10, 5, 131, 0.3);
   transition: all 0.2s;
 }
 
 .pay-now-action-btn:hover {
-  background-color: #141f42;
+  background-color: #141f42 !important;
   transform: translateY(-2px);
 }
 
@@ -448,7 +462,7 @@ body {
   flex-wrap: wrap;
 }
 .detail-row .val {
-  word-break: break-all; /* Prevents long emails/account IDs from shifting layouts */
+  word-break: break-all;
   text-align: right;
 }
 
