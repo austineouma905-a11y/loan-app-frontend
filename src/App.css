@@ -35,15 +35,19 @@ body {
     align-items: center;
     gap: 15px;
     flex: 1;
+    width: 100%;
     min-width: 0;
 }
 
 .header-left-group h1 {
   display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center; 
+  width: 100%;
   margin: 0;
   font-size: 1.25rem;
   font-weight: bold;
-  align-items: center;
   flex-wrap: wrap;
   white-space: normal;
   overflow: visible;
@@ -58,7 +62,10 @@ body {
     margin-left: 20px;
 }
 
-.text-blue { color: #124271; }
+.text-blue { 
+  color: #0d2c88; 
+  margin-right: 12px;
+}
 .text-red { color: #e7200a; }
 
 .menu-toggle {
