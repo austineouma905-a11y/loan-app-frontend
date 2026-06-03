@@ -2,7 +2,7 @@
 body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #eef2f7;
+  background-color: #010c19;
   color: #333;
 }
 
@@ -10,7 +10,7 @@ body {
   width: 75% !important;       
   margin: 40px auto !important;
   min-height: calc(100vh - 70vh);
-  background-color: #151839;
+  background-color: #010c19;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   overflow: hidden;
@@ -20,7 +20,7 @@ body {
 }
 
 .header {
-  background-color: #3ba3c2;
+  background-color: #06222c;
     display: flex;
     justify-content: space-between; 
     align-items: center;
@@ -63,7 +63,7 @@ body {
 }
 
 .text-blue { 
-  color: #0d2c88; 
+  color: #475ea0; 
   margin-right: 12px;
 }
 .text-red { color: #e7200a; }
@@ -71,7 +71,7 @@ body {
 .menu-toggle {
   background: none;
   border: none;
-  color: white;
+  color: rgb(212, 208, 237);
   font-size: 24px;
   cursor: pointer;
   z-index: 10;
@@ -111,7 +111,7 @@ body {
 .user-profile-avatar {
   width: 40px;
   height: 40px;
-  background-color: #2c3e50;
+  background-color: #23184f;
   color: white;
   border-radius: 50%;
   display: flex;
@@ -119,7 +119,7 @@ body {
   align-items: center;
   font-weight: bold;
   cursor: pointer;
-  border: 2px solid #fff;
+  border: 2.5px solid #fff;
   transition: transform 0.2s;
 }
 
@@ -141,18 +141,6 @@ body {
   display: flex;
   flex: 1;
   min-height: 70vh;
-}
-
-.sidebar {
-  width: 240px;
-  background-color: #304a64;
-  color: white;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
-}
-
-.sidebar.closed {
-  width: 0px;
 }
 
 .nav-links {
@@ -189,11 +177,11 @@ body {
 
 .arrow-indicator {
   font-size: 10px;
-  color: #09b158;
+  color: #b8dbc8;
 }
 
 .sub-menu-dropdown {
-  background-color: #2c68a0;
+  background-color: #05192b;
   display: flex;
   flex-direction: column;
   padding-left: 15px;
@@ -211,7 +199,7 @@ body {
 
 .sub-nav-item:hover {
   color: white;
-  background-color: #243342;
+  background-color: #1381f0;
 }
 
 .sidebar-logout-btn {
@@ -224,8 +212,7 @@ body {
   padding: 40px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #373859 0%, #0c0f28 100%);
-  background-color: rgb(41, 41, 96);
+  background: linear-gradient(135deg, #131431 0%, #03072d 100%);
   overflow-y: auto;
   min-height: 100%;
 }
@@ -245,7 +232,7 @@ body {
 }
 
 .view-fade-in h2 {
-  color: whitesmoke;
+  color: rgb(245, 245, 245);
 }
 
 .password-toggle-eye:hover {
@@ -277,7 +264,7 @@ body {
 }
 
 .cancel-btn {
-  background-color: #7f8c8d !important;
+  background-color: #27949c !important;
 }
 
 @media screen and (max-width: 768px) {
@@ -297,8 +284,8 @@ body {
     top: 60px; 
     left: 0;
     bottom: 0;
-    width: 260px;
-    background-color: #2c3e50;
+    width: 240px;
+    background-color: #253a4e;
     z-index: 999;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 4px 0 10px rgba(0,0,0,0.2);
@@ -385,14 +372,14 @@ body {
 }
 
 .welcome-subtitle {
-  color: #bbe3d9;
+  color: #49d7bf !important;
   margin-bottom: 30px;
 }
 
 .loan-balance-card-container {
   max-width: 380px;
-  background: linear-gradient(135deg, #a00d5e 0%, #048260 100%);
-  border: 1px solid #dcdde1;
+  background: linear-gradient(135deg, #a510c6 0%, #29cca1 100%);
+  border: 2px solid #dcdde1;
   border-radius: 16px;
   padding: 30px;
   text-align: center;
@@ -403,7 +390,7 @@ body {
 .balance-circle-graphic {
   width: 70px;
   height: 70px;
-  background-color: #84d5de;
+  background-color: #03041c53;
   border-radius: 50%;
   box-shadow: 0 4px 10px rgba(0,0,0,0.05);
   display: flex;
@@ -419,13 +406,13 @@ body {
 .monetary-amount-display {
   font-size: 36px;
   font-weight: 800;
-  color: #dba63b;
+  color: #fbfcfe;
   margin: 15px 0 25px 0;
   letter-spacing: -1px;
 }
 
 .pay-now-action-btn {
-  background-color: #da1e09 !important;
+  background-color: #2e2171 !important;
   color: white;
   border: none;
   padding: 12px 35px;
@@ -433,12 +420,12 @@ body {
   font-weight: bold;
   border-radius: 25px;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(10, 5, 131, 0.3);
+  box-shadow: 0 4px 12px rgba(83, 79, 180, 0.3);
   transition: all 0.2s;
 }
 
 .pay-now-action-btn:hover {
-  background-color: #141f42 !important;
+  background-color: #075305 !important;
   transform: translateY(-2px);
 }
 
@@ -455,7 +442,7 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 10px 5px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 2px solid rgba(241, 237, 237, 0.1);
   color: whitesmoke;
   width: 100%;
   box-sizing: border-box;
@@ -490,13 +477,14 @@ body {
   margin-top: 10px;
   padding: 5px;
   color: whitesmoke;
-  background-color: #4fb7d6;
+  background-color: #060f2d;
   cursor: pointer;
   font-weight: 700;
 }
 
 .view-fade-in p {
-  color: rgb(228, 153, 23);
+  color: #e7e8ed;
+  font-weight: 600;
 }
 
 .detail-row .val {
@@ -515,7 +503,7 @@ body {
   border: 1px solid #e1e8ed;
   padding: 30px;
   border-radius: 8px;
-  background-color: #2ecbcb;
+  background-color: #010218;
 }
 
 .status-narrative {
@@ -533,9 +521,12 @@ body {
 }
 
 .disbursement_in_progress {
-  background-color: #fade7c;
-  color: #c97f08;
+  background-color: #24a79a;
+  color: #f4f3f3;
   border: 1px solid #fdebd0;
+  border-radius: 7px;
+  text-align: center;
+  font-weight: 600;
 }
 
 .disabled-badge {
@@ -552,7 +543,7 @@ body {
 .app-footer {
   text-align: center;
   padding: 20px;
-  background-color: #2c3e50;
+  background-color: #000d06;
   color: #95a5a6;
   font-size: 13px;
   margin-top: auto;
@@ -699,7 +690,7 @@ body {
 }
 
 .loan-card {
-    background-color: #30577e;
+    background-color: #1b5790;
     border-left: 5px solid #16d73d;
     border-top: 1px solid #e2e8f0;
     border-right: 1px solid #e2e8f0;
@@ -712,9 +703,9 @@ body {
 
 .loan-card:hover {
     transform: translateY(-2px);
-    background-color: #061731;
+    background-color: #13b45b;
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-    border-left-color: #fa3407;
+    border-left-color: #f90324;
 }
 
 .loan-card-title {
@@ -742,15 +733,15 @@ body {
 
 .loan-rate {
     font-size: 14px;
-    color: #fcf8f7;
+    color: hsl(0, 20%, 99%);
 }
 
 .loan-rate strong {
-    color: red;
+    color: rgb(130, 4, 4);
 }
 
 .loan-apply-btn {
-    background-color: #2c3e50;
+    background-color: #010d18 !important;
     color: #ffffff;
     border: none;
     padding: 8px 16px;
