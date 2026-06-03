@@ -300,7 +300,8 @@ export default function App() {
             </button>
           )}
           <h1>
-            <span className="text-blue">AUSTINE'S</span> {" "}
+            <span className="text-blue">AUSTINE'S</span>
+            {" "}
             <span className="text-red">LOAN BUSINESS</span>
             </h1>
         </div>

@@ -41,11 +41,13 @@ body {
 .header-left-group h1 {
   display: flex;
   margin: 0;
-  font-size: 1.3rem;
+  font-size: 1.25rem;
   font-weight: bold;
   align-items: center;
   flex-wrap: wrap;
   white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 
@@ -740,4 +742,26 @@ body {
 
 .loan-apply-btn:hover {
     background-color: #cd1204;
+}
+@media screen and (max-width: 768px) {
+  .main-layout-wrapper {
+    width: 95% !important;
+    margin: 10px auto !important;
+    border-radius: 8px;
+  }
+
+  .main-content-window {
+    padding: 20px 15px !important;
+  }
+
+  .detail-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 4px;
+  }
+  
+  .detail-row .val {
+    text-align: left !important;
+    word-break: break-all;
+  }
 }
