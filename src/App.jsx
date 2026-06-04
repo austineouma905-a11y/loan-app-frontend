@@ -153,12 +153,11 @@ export default function App() {
     loanId: "LNX-PENDING"
   });
 
-  // 📥 STEP 1: M-PESA SPECIFIC HOOKS AND STATES 
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState('');
+  const [paymentError, setPaymentError] = useState(false); // Tracks error state to dynamically color background banners safely
   const [mpesaPhone, setMpesaPhone] = useState('');
 
-  // Automatically load user profile phone into the M-Pesa field upon successful login
   React.useEffect(() => {
     if (userProfile.phone) {
       setMpesaPhone(userProfile.phone);
@@ -176,7 +175,7 @@ export default function App() {
     setTimeout(() => setNotification({ message: '', type: '' }), 3500);
   };
 
-  // 📥 M-PESA STK PUSH TRIGGER HANDLER
+  // 📲 ADAPTIVE M-PESA STK PUSH HANDLER WITH BACKEND RESPONSE CHECKS
   const handleMpesaPaymentSubmit = async (e) => {
     e.preventDefault();
     if (loanBalance <= 0) {
@@ -184,6 +183,7 @@ export default function App() {
       return;
     }
     setPaymentLoading(true);
+    setPaymentError(false);
     setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
 
     try {
@@ -199,7 +199,11 @@ export default function App() {
       }
     } catch (error) {
       console.error("M-Pesa error trace:", error);
-      setPaymentStatus('❌ Failed to wake up connection payload engines.');
+      setPaymentError(true);
+      
+      // Grab backend custom error payload safely if provided, fallback otherwise
+      const serverErrorMessage = error.response?.data?.error || 'Failed to wake up connection payload engines.';
+      setPaymentStatus(`❌ ${serverErrorMessage}`);
       triggerAlert('STK Push submission collapsed.', 'logout');
     } finally {
       setPaymentLoading(false);
@@ -214,6 +218,7 @@ export default function App() {
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
     setIsMenuOpen(false);
     setPaymentStatus('');
+    setPaymentError(false);
     triggerAlert('Logged out successfully.', 'logout');
   };
 
@@ -416,33 +421,35 @@ export default function App() {
                 </div>
               )}
 
+              {/* 🛠️ REFACTORED RESPONSIVE CARD VIEW CONTAINER */}
               {currentView === 'repay_fully' && (
                 <div className="view-fade-in action-panel-card">
                   <h2>Full Settlement Portal</h2>
-                  <p className="discount" style={{color: 'white'}}>Clear outstanding loan balance balances on Time so that your loan rates gets Discount.</p>
+                  <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Clear outstanding loan balances on time to receive account standing discounts.</p>
                   
-                  <div className="repay-box" style={{ background: '#32bcde', padding: '20px', borderRadius: '8px', border: '1px solid #edcdcc', marginTop: '15px' }}>
-                    <p style={{ color: '#fff', fontSize: '16px', marginBottom: '15px' }}>
+                  {/* CSS classes replace absolute element heights to ensure components stretch naturally */}
+                  <div className="repay-box-container" style={{ background: '#32bcde', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
+                    <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
                       Current Loan Balance Total: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                     </p>
                     
-                    <form onSubmit={handleMpesaPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                        <label style={{ color: '#fff', fontSize: '11px', marginBottom: '4px', fontWeight: 'bold' }}>M-PESA PHONE NUMBER</label>
+                    <form onSubmit={handleMpesaPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', alignItems: 'flex-start' }}>
+                        <label style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>M-PESA Phone Number</label>
                         <input 
                           type="tel"
                           value={mpesaPhone}
                           onChange={(e) => setMpesaPhone(e.target.value)}
-                          placeholder="e.g. 0712345678"
+                          placeholder="e.g. 254712345678"
                           required
-                          style={{ width: '100%', padding: '10px', borderRadius: '4px', border: 'none', fontSize: '14px', color: '#333' }}
+                          style={{ width: '100%', padding: '12px', borderRadius: '6px', border: 'none', fontSize: '15px', color: '#333', background: '#fff', boxSizing: 'border-box' }}
                         />
                       </div>
                       
                       <button 
                         type="submit" 
                         className="pay-now-action-btn" 
-                        style={{ width: '100%', marginTop: '5px' }} 
+                        style={{ width: '100%', padding: '14px', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', margin: 0 }} 
                         disabled={paymentLoading}
                       >
                         {paymentLoading ? 'PROCESSING PUSH...' : 'PAY VIA M-PESA'}
@@ -450,9 +457,21 @@ export default function App() {
                     </form>
 
                     {paymentStatus && (
-                      <p style={{ marginTop: '15px', fontSize: '13px', color: '#151839', fontWeight: 'bold', background: 'rgba(255,255,255,0.7)', padding: '8px', borderRadius: '4px' }}>
+                      <div style={{ 
+                        marginTop: '5px', 
+                        fontSize: '14px', 
+                        color: paymentError ? '#721c24' : '#155724', 
+                        fontWeight: '600', 
+                        backgroundColor: paymentError ? '#f8d7da' : '#d4edda', 
+                        border: paymentError ? '1px solid #f5c6cb' : '1px solid #c3e6cb',
+                        padding: '12px', 
+                        borderRadius: '6px',
+                        wordBreak: 'break-word',
+                        boxSizing: 'border-box',
+                        width: '100%'
+                      }}>
                         {paymentStatus}
-                      </p>
+                      </div>
                     )}
                   </div>
                 </div>
