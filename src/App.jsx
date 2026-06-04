@@ -6,10 +6,30 @@ function AuthView({
   authMode, setAuthMode, email, setEmail, phone, setPhone, 
   firstName, setFirstName, lastName, setLastName,
   password, setPassword, confirmPassword, setConfirmPassword, 
-  handleLoginSubmit, handleSignUpSubmit 
+  handleLoginSubmit, handleSignUpSubmit, handleForgotPasswordSubmit 
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  if (authMode === 'forgot') {
+    return (
+      <div className="auth-view">
+        <h2>Reset Password</h2>
+        <p className="auth-subtitle">Enter your registered email address to receive password recovery instructions.</p>
+        <form onSubmit={(e) => { e.preventDefault(); handleForgotPasswordSubmit(); }} className="auth-form">
+          <div className="input-group">
+            <label>Email Address:</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
+          </div>
+          <button type="submit" className="auth-submit-btn">Send Reset Link</button>
+        </form>
+        <p className="auth-toggle-text">
+          Remembered your credentials? <span onClick={() => setAuthMode('login')} className="auth-link">Back to Login</span>
+        </p>
+      </div>
+    );
+  }
 
   if (authMode === 'login') {
     return (
@@ -39,6 +59,23 @@ function AuthView({
                 style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
               >
                 {showPassword ? '👽' : '👁️'}
+              </span>
+            </div>
+            
+            {/* 🚀 Flex container putting Remember Me on the left and Forgot Password on the right above the login button */}
+            <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', width: '100%', marginTop: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: 'inherit', margin: 0, userSelect: 'none' }}>
+                <input 
+                  type="checkbox" 
+                  checked={rememberMe} 
+                  onChange={(e) => setRememberMe(e.target.checked)} 
+                  style={{ cursor: 'pointer', margin: 0 }}
+                />
+                Remember me
+              </label>
+              
+              <span onClick={() => setAuthMode('forgot')} className="auth-link" style={{ fontSize: '13px', cursor: 'pointer', marginLeft: 'auto' }}>
+                Forgot Password?
               </span>
             </div>
           </div>
@@ -174,37 +211,38 @@ export default function App() {
     setNotification({ message, type });
     setTimeout(() => setNotification({ message: '', type: '' }), 3500);
   };
+
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
-  e.preventDefault();
-  const paymentAmount = variant === 'partial' ? parseFloat(customAmount) : parseFloat(loanBalance);
+    e.preventDefault();
+    const paymentAmount = variant === 'partial' ? parseFloat(customAmount) : parseFloat(loanBalance);
 
-  if (loanBalance <= 0) {
-    triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
-    return;
-  }
-  if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
-    triggerAlert('Please enter a valid partial payment amount.', 'logout');
-    return;
-  }
+    if (loanBalance <= 0) {
+      triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
+      return;
+    }
+    if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
+      triggerAlert('Please enter a valid partial payment amount.', 'logout');
+      return;
+    }
 
-  setPaymentLoading(true);
-  setPaymentError(false);
-  setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
-  let formattedPhone = mpesaPhone.trim();
-  if (formattedPhone.startsWith('0')) {
-    formattedPhone = '254' + formattedPhone.substring(1);
-  } else if (formattedPhone.startsWith('+254')) {
-    formattedPhone = formattedPhone.replace('+', '');
-  }
+    setPaymentLoading(true);
+    setPaymentError(false);
+    setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
+    let formattedPhone = mpesaPhone.trim();
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '254' + formattedPhone.substring(1);
+    } else if (formattedPhone.startsWith('+254')) {
+      formattedPhone = formattedPhone.replace('+', '');
+    }
 
-  try {
-    const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://localhost:5000';
-    const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
-      phoneNumber: formattedPhone, 
-      amount: paymentAmount,
-      accountReference: `LoanRepayment-${userProfile.loanId}`,
-      transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
-    });
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
+        phoneNumber: formattedPhone, 
+        amount: paymentAmount,
+        accountReference: `LoanRepayment-${userProfile.loanId}`,
+        transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
+      });
       if (response.status === 200) {
         setPaymentStatus('📲 STK Push Prompt Sent! Verify your phone and enter your M-Pesa PIN.');
         triggerAlert('M-Pesa validation transaction successfully broadcasted!', 'success');
@@ -238,7 +276,7 @@ export default function App() {
       return;
     }
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -293,6 +331,27 @@ export default function App() {
       }
     } catch (error) {
       triggerAlert('Cannot bridge connection to Node.js backend.', 'logout');
+    }
+  };
+
+  const handleForgotPasswordSubmit = async () => {
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await fetch(`${BASE_URL}/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        triggerAlert(data.message || 'Recovery instructions sent successfully!', 'success');
+        setAuthMode('login');
+        setEmail('');
+      } else {
+        triggerAlert(data.message || 'Email trace not found in records.', 'error-red');
+      }
+    } catch (error) {
+      triggerAlert('Cannot bridge connection to Node.js backend pipelines.', 'logout');
     }
   };
 
@@ -383,6 +442,7 @@ export default function App() {
               firstName={firstName} setFirstName={setFirstName} lastName={lastName} setLastName={setLastName} 
               password={password} setPassword={setPassword} confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword}
               handleLoginSubmit={handleLoginSubmit} handleSignUpSubmit={handleSignUpSubmit}
+              handleForgotPasswordSubmit={handleForgotPasswordSubmit}
             />
           </div>
         ) : (
@@ -416,7 +476,7 @@ export default function App() {
               {currentView === 'dashboard_home' && (
                 <div className="view-fade-in">
                   <h2 className="welcome-banner" style={{color: '#f49e2f'}}>Welcome Back, <span className="user-highlight">{userProfile.name}</span></h2>
-                  <p className="welcome-subtitle">We are delighted to have you back to our better services.</p>
+                  <p className="welcome-subtitle">We are delighted to have you back to our better Loan services.</p>
                   
                   <div className="loan-balance-card-container">
                     <div className="balance-circle-graphic">
@@ -606,22 +666,22 @@ export default function App() {
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
                     <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
-  <label>Enter Amount To Pay (KES)</label>
-  <input 
-    type="number" 
-    placeholder="Enter Amount" 
-    value={customAmount} 
-    onChange={(e) => setCustomAmount(e.target.value)} 
-  />
-</div>
-<button 
-  className="pay-now-action-btn" 
-  style={{ width: '100%', backgroundColor: '#eba22d' }} 
-  onClick={(e) => handleMpesaPaymentSubmit(e, 'partial')}
-  disabled={paymentLoading}
->
-  {paymentLoading ? 'PROCESSING...' : 'PAY'}
-</button>
+                      <label>Enter Amount To Pay (KES)</label>
+                      <input 
+                        type="number" 
+                        placeholder="Enter Amount" 
+                        value={customAmount} 
+                        onChange={(e) => setCustomAmount(e.target.value)} 
+                      />
+                    </div>
+                    <button 
+                      className="pay-now-action-btn" 
+                      style={{ width: '100%', backgroundColor: '#eba22d' }} 
+                      onClick={(e) => handleMpesaPaymentSubmit(e, 'partial')}
+                      disabled={paymentLoading}
+                    >
+                      {paymentLoading ? 'PROCESSING...' : 'PAY'}
+                    </button>
                   </div>
                 </div>
               )}
