@@ -362,9 +362,13 @@ body {
 }
 
 .welcome-banner {
-  font-size: 28px;
+  font-size: 1.8rem;
   color: #40c4bd;
   margin-bottom: 5px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  width: 100%;
+  line-height: 1.2;
 }
 
 .user-highlight {
@@ -600,7 +604,7 @@ body {
 .input-group label {
   font-size: 13px;
   font-weight: 600;
-  color: #a9b3bd;
+  color: #8d9093;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -610,7 +614,7 @@ body {
   border: 1px solid #dcdde1;
   border-radius: 8px;
   font-size: 15px;
-  background-color: #f8f9fa;
+  background-color: #faf9f8;
   transition: all 0.2s ease-in-out;
   outline: none;
 }
@@ -622,15 +626,15 @@ body {
 }
 
 .auth-submit-btn {
-  background-color: #266daf;
-  color: #ffffff;
+  background-color: #880707 !important;
+  color: hsl(0, 0%, 100%);
   border: none !important;
   outline: none !important;
   box-shadow: none !important; 
   padding: 14px 24px;
   font-size: 16px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 10px !important;
   cursor: pointer;
   margin: 10px auto 0 auto; 
   width: 60%; 
@@ -639,7 +643,7 @@ body {
 }
 
 .auth-submit-btn:hover {
-  background-color: #56b7c8;
+  background-color: #85c856 !important;
   transform: translateY(-1px);
   box-shadow: 0 5px 15px rgba(233, 54, 102, 0.2) !important;
 }

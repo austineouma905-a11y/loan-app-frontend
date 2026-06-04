@@ -155,7 +155,7 @@ export default function App() {
 
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState('');
-  const [paymentError, setPaymentError] = useState(false); // Tracks error state to dynamically color background banners safely
+  const [paymentError, setPaymentError] = useState(false);
   const [mpesaPhone, setMpesaPhone] = useState('');
 
   React.useEffect(() => {
@@ -174,25 +174,37 @@ export default function App() {
     setNotification({ message, type });
     setTimeout(() => setNotification({ message: '', type: '' }), 3500);
   };
+  const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
+  e.preventDefault();
+  const paymentAmount = variant === 'partial' ? parseFloat(customAmount) : parseFloat(loanBalance);
 
-  // 📲 ADAPTIVE M-PESA STK PUSH HANDLER WITH BACKEND RESPONSE CHECKS
-  const handleMpesaPaymentSubmit = async (e) => {
-    e.preventDefault();
-    if (loanBalance <= 0) {
-      triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
-      return;
-    }
-    setPaymentLoading(true);
-    setPaymentError(false);
-    setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
+  if (loanBalance <= 0) {
+    triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
+    return;
+  }
+  if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
+    triggerAlert('Please enter a valid partial payment amount.', 'logout');
+    return;
+  }
 
-    try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
-        phoneNumber: mpesaPhone,
-        amount: loanBalance
-      });
+  setPaymentLoading(true);
+  setPaymentError(false);
+  setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
+  let formattedPhone = mpesaPhone.trim();
+  if (formattedPhone.startsWith('0')) {
+    formattedPhone = '254' + formattedPhone.substring(1);
+  } else if (formattedPhone.startsWith('+254')) {
+    formattedPhone = formattedPhone.replace('+', '');
+  }
 
+  try {
+    const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+    const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
+      phoneNumber: formattedPhone, 
+      amount: paymentAmount,
+      accountReference: `LoanRepayment-${userProfile.loanId}`,
+      transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
+    });
       if (response.status === 200) {
         setPaymentStatus('📲 STK Push Prompt Sent! Verify your phone and enter your M-Pesa PIN.');
         triggerAlert('M-Pesa validation transaction successfully broadcasted!', 'success');
@@ -200,8 +212,6 @@ export default function App() {
     } catch (error) {
       console.error("M-Pesa error trace:", error);
       setPaymentError(true);
-      
-      // Grab backend custom error payload safely if provided, fallback otherwise
       const serverErrorMessage = error.response?.data?.error || 'Failed to wake up connection payload engines.';
       setPaymentStatus(`❌ ${serverErrorMessage}`);
       triggerAlert('STK Push submission collapsed.', 'logout');
@@ -228,7 +238,7 @@ export default function App() {
       return;
     }
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'http://localhost:5000';
       const response = await fetch(`${BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -258,7 +268,7 @@ export default function App() {
 
   const handleLoginSubmit = async () => {
     try {
-      const BASE_URL = 'https://loan-app-backend-vg4d.onrender.com';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -310,7 +320,7 @@ export default function App() {
     }
 
     try {
-      const BASE_URL = 'https://loan-app-backend-vg4d.onrender.com';
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/loans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -421,19 +431,16 @@ export default function App() {
                 </div>
               )}
 
-              {/* 🛠️ REFACTORED RESPONSIVE CARD VIEW CONTAINER */}
               {currentView === 'repay_fully' && (
                 <div className="view-fade-in action-panel-card">
                   <h2>Full Settlement Portal</h2>
                   <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Clear outstanding loan balances on time to receive account standing discounts.</p>
-                  
-                  {/* CSS classes replace absolute element heights to ensure components stretch naturally */}
                   <div className="repay-box-container" style={{ background: '#32bcde', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
                     <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
                       Current Loan Balance Total: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                     </p>
                     
-                    <form onSubmit={handleMpesaPaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+                    <form onSubmit={(e) => handleMpesaPaymentSubmit(e, 'full')} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', alignItems: 'flex-start' }}>
                         <label style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>M-PESA Phone Number</label>
                         <input 
@@ -521,7 +528,7 @@ export default function App() {
                             type="button" key={amt} className="amount-selection-btn"
                             onClick={() => { setAppliedAmount(amt); setCustomAmount(''); }}
                             style={{
-                              backgroundColor: appliedAmount === amt ? '#b63e8c' : '#f4f6f7',
+                              backgroundColor: appliedAmount === amt ? '#d47a14' : '#0870a3',
                               color: appliedAmount === amt ? '#fff' : '#333'
                             }}
                           >
@@ -531,8 +538,8 @@ export default function App() {
                         <button
                           type="button" className="amount-selection-btn" onClick={() => setAppliedAmount('custom')}
                           style={{
-                            backgroundColor: appliedAmount === 'custom' ? '#3498db' : '#f4f6f7',
-                            color: appliedAmount === 'custom' ? '#fff' : '#333'
+                            backgroundColor: appliedAmount === 'custom' ? '#dc6606' : '#f4f6f7',
+                            color: appliedAmount === 'custom' ? '#fff' : '#5d3904', fontWeight: appliedAmount === 'custom' ? '750' : '800'
                           }}
                         >Custom</button>
                       </div>
@@ -550,7 +557,7 @@ export default function App() {
                       <select 
                         value={paymentMode} 
                         onChange={(e) => { setPaymentMode(e.target.value); setDisbursementAccount(''); }}
-                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#fff' }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#a05305' }}
                       >
                         <option value="Mobile">Mobile Money</option>
                         <option value="Bank">Bank</option>
@@ -563,6 +570,7 @@ export default function App() {
                       </label>
                       <input 
                         type="text" 
+                        className="disbursement-account-input" style={{ color: 'white' }}
                         value={disbursementAccount} 
                         onChange={(e) => setDisbursementAccount(e.target.value)} 
                         placeholder={paymentMode === 'Mobile' ? 'enter mobile number' : 'enter account number'} 
@@ -598,10 +606,22 @@ export default function App() {
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
                     <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
-                      <label>Enter Amount To Pay (KES)</label>
-                      <input type="number" placeholder="Enter Amount" />
-                    </div>
-                    <button className="pay-now-action-btn" style={{ width: '100%', backgroundColor: '#eba22d' }} onClick={() => triggerAlert('Processing...', 'success')}>PAY</button>
+  <label>Enter Amount To Pay (KES)</label>
+  <input 
+    type="number" 
+    placeholder="Enter Amount" 
+    value={customAmount} 
+    onChange={(e) => setCustomAmount(e.target.value)} 
+  />
+</div>
+<button 
+  className="pay-now-action-btn" 
+  style={{ width: '100%', backgroundColor: '#eba22d' }} 
+  onClick={(e) => handleMpesaPaymentSubmit(e, 'partial')}
+  disabled={paymentLoading}
+>
+  {paymentLoading ? 'PROCESSING...' : 'PAY'}
+</button>
                   </div>
                 </div>
               )}
