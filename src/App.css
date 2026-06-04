@@ -362,13 +362,13 @@ body {
 }
 
 .welcome-banner {
-  font-size: 1.8rem;
+  font-size: 2.2rem;
   color: #40c4bd;
-  margin-bottom: 5px;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
+  margin-top: 10px;
+  margin-bottom: 7px;
   width: 100%;
-  line-height: 1.2;
+  max-width: 600px;
+  font-weight: 700;
 }
 
 .user-highlight {
@@ -377,7 +377,29 @@ body {
 
 .welcome-subtitle {
   color: #49d7bf !important;
+  font-size: 1.1rem;
+  line-height: 1.4;
   margin-bottom: 30px;
+  word-wrap: break-word;
+  white-space: normal;
+  width: 100%;
+  max-width: 450px;
+}
+
+@media (max-width: 580px) {
+  .welcome-banner {
+    font-size: 1.6rem; 
+    text-align: left;
+  }
+  
+  .welcome-subtitle {
+    font-size: 0.95rem;
+    text-align: left;
+  }
+
+  .view-fade-in {
+    align-items: flex-start;
+  }
 }
 
 .loan-balance-card-container {
