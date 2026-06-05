@@ -649,9 +649,9 @@ export default function App() {
                 <div className="view-fade-in">
                   <h2>Current Loan Application Status</h2>
                   <div className="status-tracker-card-layout">
-                    <div className="status-badge indicator disbursement_in_progress">Disbursed</div>
-                    <p style={{ marginTop: '15px', fontWeight: '500', color: '#2c3e50' }}>
-                      Status text: <span className="status-highlight-text" style={{ color: '#e67e22', fontWeight: 'bold' }}>Disbursement In Progress</span>
+                    <div className="status-badge indicator disbursement_in_progress" style={{ backgroundColor: '#ed0404', color: '#0d0d0f', fontWeight: '700' }}>Disbursed</div>
+                    <p style={{ marginTop: '15px', fontWeight: '500', color: '#f6f7f9' }}>
+                      Status text: <span className="status-highlight-text" style={{ color: '#4093ca', fontWeight: 'bold' }}>Disbursement In Progress</span>
                     </p>
                     <p>Your application verification credentials matched successfully. Settlement engines are active.</p>
                   </div>

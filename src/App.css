@@ -222,6 +222,9 @@ body {
   flex-direction: column;
   justify-content: center;
   width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  box-sizing: border-box;
   align-items: center;
   animation: fadeInEffect 0.4s ease-out forwards;
 }
@@ -526,10 +529,17 @@ body {
 }
 
 .status-tracker-card-layout {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
   border: 1px solid #e1e8ed;
   padding: 30px;
   border-radius: 8px;
+  box-sizing: border-box;
   background-color: #010218;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .status-narrative {
@@ -713,18 +723,37 @@ body {
     gap: 10px;
     width: 100%;
     max-width: 850px;
+    flex-wrap: wrap;
+    padding: 15px;
+    box-sizing: border-box;
 }
 
 .loan-card {
+    width: 100% !important;
+    height: auto !important;
     background-color: #1b5790;
     border-left: 5px solid #16d73d;
     border-top: 1px solid #e2e8f0;
     border-right: 1px solid #e2e8f0;
     border-bottom: 1px solid #e2e8f0;
     border-radius: 8px;
-    padding: 24px;
+    padding: 20px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     transition: all 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-sizing: border-box;
+}
+
+@media (min-width: 768px) {
+    .loan-cards-container {
+        flex-direction: row;
+        justify-content: space-between;
+    }
+    .loan-card {
+        width: 31% !important;
+    }
 }
 
 .loan-card:hover {
@@ -736,16 +765,16 @@ body {
 
 .loan-card-title {
     margin: 0 0 10px 0;
-    font-size: 19px;
+    font-size: 1.25rem;
     color: #1e293b;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 .loan-card-desc {
     margin: 0 0 15px 0;
-    font-size: 14px;
+    font-size: 0.875rem;
     color: #f1f4f7;
-    line-height: 1.6;
+    line-height: 1.5;
 }
 
 .loan-card-footer {
