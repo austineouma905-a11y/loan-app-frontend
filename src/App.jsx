@@ -16,16 +16,16 @@ function AuthView({
     return (
       <div className="auth-view">
         <h2>Reset Password</h2>
-        <p className="auth-subtitle">Enter your registered email address to receive password recovery instructions.</p>
+        <p className="auth-subtitle">Enter your registered email address to receive password reset code.</p>
         <form onSubmit={(e) => { e.preventDefault(); handleForgotPasswordSubmit(); }} className="auth-form">
           <div className="input-group">
             <label>Email Address:</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
           </div>
-          <button type="submit" className="auth-submit-btn">Send Reset Link</button>
+          <button type="submit" className="auth-submit-btn">Reset Password</button>
         </form>
         <p className="auth-toggle-text">
-          Remembered your credentials? <span onClick={() => setAuthMode('login')} className="auth-link">Back to Login</span>
+        <span onClick={() => setAuthMode('login')} className="auth-link">Back to Login</span>
         </p>
       </div>
     );
@@ -61,15 +61,14 @@ function AuthView({
                 {showPassword ? '👽' : '👁️'}
               </span>
             </div>
-            
-            {/* 🚀 Flex container putting Remember Me on the left and Forgot Password on the right above the login button */}
+
             <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', width: '100%', marginTop: '8px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: 'inherit', margin: 0, userSelect: 'none' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: 'whitesmoke', margin: 0, userSelect: 'none' }}>
                 <input 
                   type="checkbox" 
                   checked={rememberMe} 
                   onChange={(e) => setRememberMe(e.target.checked)} 
-                  style={{ cursor: 'pointer', margin: 0 }}
+                  style={{ cursor: 'pointer', margin: 0, backgroundColor: 'green' }}
                 />
                 Remember me
               </label>
@@ -598,8 +597,8 @@ export default function App() {
                         <button
                           type="button" className="amount-selection-btn" onClick={() => setAppliedAmount('custom')}
                           style={{
-                            backgroundColor: appliedAmount === 'custom' ? '#dc6606' : '#f4f6f7',
-                            color: appliedAmount === 'custom' ? '#fff' : '#5d3904', fontWeight: appliedAmount === 'custom' ? '750' : '800'
+                            backgroundColor: appliedAmount === 'custom' ? '#dc6606' : '#0e7ab0',
+                            color: appliedAmount === 'custom' ? '#ffffff' : '#5d3904', fontWeight: appliedAmount === 'custom' ? '750' : '800'
                           }}
                         >Custom</button>
                       </div>
@@ -617,7 +616,7 @@ export default function App() {
                       <select 
                         value={paymentMode} 
                         onChange={(e) => { setPaymentMode(e.target.value); setDisbursementAccount(''); }}
-                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#a05305' }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#094a87' }}
                       >
                         <option value="Mobile">Mobile Money</option>
                         <option value="Bank">Bank</option>

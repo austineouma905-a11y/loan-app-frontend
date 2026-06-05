@@ -626,7 +626,7 @@ body {
 .input-group label {
   font-size: 13px;
   font-weight: 600;
-  color: #8d9093;
+  color: #b7bdc2;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -636,19 +636,19 @@ body {
   border: 1px solid #dcdde1;
   border-radius: 8px;
   font-size: 15px;
-  background-color: #faf9f8;
+  background-color: #09b9c5;
   transition: all 0.2s ease-in-out;
   outline: none;
 }
 
 .input-group input:focus {
-  border-color: #2ecc71;
-  background-color: #ffffff;
+  border-color: #cd5e03;
+  background-color: #c6ccd3;
   box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.15);
 }
 
 .auth-submit-btn {
-  background-color: #880707 !important;
+  background-color: rgb(220, 102, 6) !important;
   color: hsl(0, 0%, 100%);
   border: none !important;
   outline: none !important;
@@ -665,7 +665,7 @@ body {
 }
 
 .auth-submit-btn:hover {
-  background-color: #85c856 !important;
+  background-color: #64d997 !important;
   transform: translateY(-1px);
   box-shadow: 0 5px 15px rgba(233, 54, 102, 0.2) !important;
 }
