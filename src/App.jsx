@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 
@@ -12,20 +12,197 @@ function AuthView({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
+  // --- Dynamic Forgot Password Sub-Steps States ---
+  const [forgotStep, setForgotStep] = useState(1); // 1: Email Request, 2: 4-Digit OTP, 3: Password Reset Entry
+  const [otpArray, setOtpArray] = useState(['', '', '', '']);
+  const [timer, setTimer] = useState(60);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const inputRefs = [useRef(), useRef(), useRef(), useRef()];
+
+  // 60-Second Countdown Effect
+  useEffect(() => {
+    if (authMode === 'forgot' && forgotStep === 2 && timer > 0) {
+      const countdown = setTimeout(() => setTimer(timer - 1), 1000);
+      return () => clearTimeout(countdown);
+    }
+  }, [timer, forgotStep, authMode]);
+
+  // Handle shift focus forward when typing OTP digit
+  const handleOtpChange = (val, index) => {
+    const numericVal = val.replace(/[^0-9]/g, '');
+    if (!numericVal) return;
+
+    const updatedOtp = [...otpArray];
+    updatedOtp[index] = numericVal.substring(numericVal.length - 1);
+    setOtpArray(updatedOtp);
+
+    if (index < 3) {
+      inputRefs[index + 1].current.focus();
+    }
+  };
+
+  // Handle backspace focus shift backwards
+  const handleOtpKeyDown = (e, index) => {
+    if (e.key === 'Backspace' && !otpArray[index] && index > 0) {
+      inputRefs[index - 1].current.focus();
+    }
+  };
+
+  // Step 1 Submission: Send Email Verification Trace
+  const onEmailSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const success = await handleForgotPasswordSubmit();
+    setIsSubmitting(false);
+    if (success) {
+      setForgotStep(2);
+      setTimer(60);
+    }
+  };
+
+  // Step 2 Submission: Verify 4 Digits Over Backend Bridge
+  const onOtpSubmit = async (e) => {
+    e.preventDefault();
+    const fullOtp = otpArray.join('');
+    if (fullOtp.length < 4) return;
+
+    setIsSubmitting(true);
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.post(`${BASE_URL}/api/verify-otp`, { email, otp: fullOtp });
+      if (response.status === 200) {
+        setForgotStep(3);
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Invalid or expired OTP code.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Step 3 Submission: Commit New Hashed Password to MySQL
+  const onNewPasswordSubmit = async (e) => {
+    e.preventDefault();
+    if (password.length < 8) {
+      alert("Password must be at least 8 characters long.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      alert("Passwords do not match!");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email, newPassword: password });
+      if (response.status === 200) {
+        alert("Password updated successfully via database engine!");
+        setForgotStep(1);
+        setOtpArray(['', '', '', '']);
+        setPassword('');
+        setConfirmPassword('');
+        setAuthMode('login');
+      }
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to sync new credentials.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // RENDER INTERNALS
   if (authMode === 'forgot') {
     return (
       <div className="auth-view">
         <h2>Reset Password</h2>
-        <p className="auth-subtitle">Enter your registered email address to receive password reset code.</p>
-        <form onSubmit={(e) => { e.preventDefault(); handleForgotPasswordSubmit(); }} className="auth-form">
-          <div className="input-group">
-            <label>Email Address:</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
-          </div>
-          <button type="submit" className="auth-submit-btn">Reset Password</button>
-        </form>
+        
+        {forgotStep === 1 && (
+          <>
+            <p className="auth-subtitle">Enter your registered email address to receive password reset code.</p>
+            <form onSubmit={onEmailSubmit} className="auth-form">
+              <div className="input-group">
+                <label>Email Address:</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
+              </div>
+              <button type="submit" className="auth-submit-btn" disabled={isSubmitting}>
+                {isSubmitting ? 'Sending...' : 'Reset Password'}
+              </button>
+            </form>
+          </>
+        )}
+
+        {forgotStep === 2 && (
+          <>
+            <p className="auth-subtitle">4 OTP code sent to email then page...</p>
+            <form onSubmit={onOtpSubmit} className="auth-form">
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', margin: '20px 0' }}>
+                {otpArray.map((digit, index) => (
+                  <input
+                    key={index}
+                    type="text"
+                    maxLength="1"
+                    value={digit}
+                    ref={inputRefs[index]}
+                    onChange={(e) => handleOtpChange(e.target.value, index)}
+                    onKeyDown={(e) => handleOtpKeyDown(e, index)}
+                    style={{
+                      width: '45px',
+                      height: '45px',
+                      textAlign: 'center',
+                      fontSize: '20px',
+                      borderRadius: '6px',
+                      border: '1px solid #ccc',
+                      background: '#102a45',
+                      color: '#fff'
+                    }}
+                    required
+                  />
+                ))}
+              </div>
+              
+              <div style={{ textAlign: 'center', marginBottom: '15px', fontSize: '14px', color: 'whitesmoke' }}>
+                {timer > 0 ? (
+                  <span>Time Count {timer} seconds</span>
+                ) : (
+                  <span 
+                    onClick={() => { setTimer(60); handleForgotPasswordSubmit(); }} 
+                    style={{ color: '#f49e2f', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Resend Code?
+                  </span>
+                )}
+              </div>
+
+              <button type="submit" className="auth-submit-btn" disabled={isSubmitting}>
+                {isSubmitting ? 'Verifying...' : 'Successful'}
+              </button>
+            </form>
+          </>
+        )}
+
+        {forgotStep === 3 && (
+          <>
+            <p className="auth-subtitle">Create your new profile credentials password layout.</p>
+            <form onSubmit={onNewPasswordSubmit} className="auth-form">
+              <div className="input-group">
+                <label>New Password (-8 characters)</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" required />
+              </div>
+              <div className="input-group">
+                <label>Confirm New Password</label>
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm password" required />
+              </div>
+              <button type="submit" className="auth-submit-btn" disabled={isSubmitting}>
+                Confirm new Password
+              </button>
+            </form>
+          </>
+        )}
+
         <p className="auth-toggle-text">
-        <span onClick={() => setAuthMode('login')} className="auth-link">Back to Login</span>
+          <span onClick={() => { setForgotStep(1); setAuthMode('login'); }} className="auth-link">Back to Login</span>
         </p>
       </div>
     );
@@ -62,13 +239,13 @@ function AuthView({
               </span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', width: '100%', marginTop: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: '8px' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: 'whitesmoke', margin: 0, userSelect: 'none' }}>
                 <input 
                   type="checkbox" 
                   checked={rememberMe} 
                   onChange={(e) => setRememberMe(e.target.checked)} 
-                  style={{ cursor: 'pointer', margin: 0, backgroundColor: 'green' }}
+                  style={{ cursor: 'pointer', margin: 0 }}
                 />
                 Remember me
               </label>
@@ -194,7 +371,7 @@ export default function App() {
   const [paymentError, setPaymentError] = useState(false);
   const [mpesaPhone, setMpesaPhone] = useState('');
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (userProfile.phone) {
       setMpesaPhone(userProfile.phone);
     }
@@ -270,10 +447,15 @@ export default function App() {
   };
 
   const handleSignUpSubmit = async () => {
-    if (password !== confirmPassword) {
-      triggerAlert('Passwords do not match!', 'logout');
-      return;
-    }
+    if (password.length < 8) {
+    triggerAlert('Password must be at least 8 characters long!', 'logout');
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    triggerAlert('Passwords do not match!', 'logout');
+    return;
+  }
     try {
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/signup`, {
@@ -333,6 +515,7 @@ export default function App() {
     }
   };
 
+  // Tweaked to return true/false so AuthView knows whether to change layouts
   const handleForgotPasswordSubmit = async () => {
     try {
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
@@ -343,14 +526,15 @@ export default function App() {
       });
       const data = await response.json();
       if (response.ok) {
-        triggerAlert(data.message || 'Recovery instructions sent successfully!', 'success');
-        setAuthMode('login');
-        setEmail('');
+        triggerAlert(data.message || 'Recovery code generated!', 'success');
+        return true;
       } else {
         triggerAlert(data.message || 'Email trace not found in records.', 'error-red');
+        return false;
       }
     } catch (error) {
       triggerAlert('Cannot bridge connection to Node.js backend pipelines.', 'logout');
+      return false;
     }
   };
 
