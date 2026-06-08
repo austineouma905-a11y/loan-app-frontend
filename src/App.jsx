@@ -31,13 +31,12 @@ function AuthView({
   // Handle shift focus forward when typing OTP digit
   const handleOtpChange = (val, index) => {
     const numericVal = val.replace(/[^0-9]/g, '');
-    if (!numericVal) return;
 
     const updatedOtp = [...otpArray];
     updatedOtp[index] = numericVal.substring(numericVal.length - 1);
     setOtpArray(updatedOtp);
 
-    if (index < 3) {
+    if (numericVal && index < 3) {
       inputRefs[index + 1].current.focus();
     }
   };
