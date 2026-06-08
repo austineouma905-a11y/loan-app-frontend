@@ -392,12 +392,17 @@ export default function App() {
     e.preventDefault();
     const paymentAmount = variant === 'partial' ? parseFloat(customAmount) : parseFloat(loanBalance);
 
+    if (!mpesaPhone || mpesaPhone.trim() === '') {
+      triggerAlert('Please enter a valid M-Pesa phone number.', 'error-red');
+      return;
+    }
+
     if (loanBalance <= 0) {
-      triggerAlert('You do not have any active outstanding balance to repay.', 'logout');
+      triggerAlert('You do not have any active outstanding balance to repay.', 'error-red');
       return;
     }
     if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
-      triggerAlert('Please enter a valid partial payment amount.', 'logout');
+      triggerAlert('Please enter a valid partial payment amount.', 'error-red');
       return;
     }
 
@@ -405,10 +410,27 @@ export default function App() {
     setPaymentError(false);
     setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
     let formattedPhone = mpesaPhone.trim();
+    
+    // Phone number format validation
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '254' + formattedPhone.substring(1);
     } else if (formattedPhone.startsWith('+254')) {
       formattedPhone = formattedPhone.replace('+', '');
+    } else if (!formattedPhone.startsWith('254')) {
+      setPaymentLoading(false);
+      setPaymentError(true);
+      setPaymentStatus('❌ Invalid phone format. Use: 254XXXXXXXXX or 07XXXXXXXX');
+      triggerAlert('Invalid phone number format!', 'error-red');
+      return;
+    }
+
+    // Validate phone length (254 + 9 digits = 12 total)
+    if (formattedPhone.length !== 12 || isNaN(formattedPhone)) {
+      setPaymentLoading(false);
+      setPaymentError(true);
+      setPaymentStatus('❌ Phone must be 12 digits (254XXXXXXXXX)');
+      triggerAlert('Phone must be 12 digits!', 'error-red');
+      return;
     }
 
     try {
@@ -420,13 +442,14 @@ export default function App() {
         transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
       });
       if (response.status === 200) {
-        setPaymentStatus('📲 STK Push Prompt Sent! Verify your phone and enter your M-Pesa PIN.');
-        triggerAlert('M-Pesa validation transaction successfully broadcasted!', 'success');
+        setPaymentStatus('📲 STK Push Prompt Sent! Check your phone and enter your M-Pesa PIN.');
+        setPaymentError(false);
+        triggerAlert('STK prompt sent to your phone!', 'success');
       }
     } catch (error) {
       console.error("M-Pesa error trace:", error);
       setPaymentError(true);
-      const serverErrorMessage = error.response?.data?.error || 'Failed to wake up connection payload engines.';
+      const serverErrorMessage = error.response?.data?.error || 'Failed to initiate STK push. Try again.';
       setPaymentStatus(`❌ ${serverErrorMessage}`);
       triggerAlert('STK Push submission collapsed.', 'logout');
     } finally {
