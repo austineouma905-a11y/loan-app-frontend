@@ -410,8 +410,6 @@ export default function App() {
     setPaymentError(false);
     setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
     let formattedPhone = mpesaPhone.trim();
-    
-    // Phone number format validation
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '254' + formattedPhone.substring(1);
     } else if (formattedPhone.startsWith('+254')) {
@@ -423,8 +421,6 @@ export default function App() {
       triggerAlert('Invalid phone number format!', 'error-red');
       return;
     }
-
-    // Validate phone length (254 + 9 digits = 12 total)
     if (formattedPhone.length !== 12 || isNaN(formattedPhone)) {
       setPaymentLoading(false);
       setPaymentError(true);
@@ -537,8 +533,6 @@ export default function App() {
       triggerAlert('Cannot bridge connection to Node.js backend.', 'logout');
     }
   };
-
-  // Tweaked to return true/false so AuthView knows whether to change layouts
   const handleForgotPasswordSubmit = async () => {
     try {
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
