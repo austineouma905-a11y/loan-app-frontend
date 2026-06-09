@@ -337,6 +337,102 @@ function AuthView({
   );
 }
 
+const th = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
+const td = { padding: '10px' };
+
+function AdminView() {
+  const [secret, setSecret] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [loans, setLoans] = useState([]);
+  const [activeTab, setActiveTab] = useState('users');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${BASE_URL}/api/admin/users`, { headers: { 'x-admin-secret': secret } });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users);
+        setIsAuthenticated(true);
+        const loansRes = await fetch(`${BASE_URL}/api/admin/loans`, { headers: { 'x-admin-secret': secret } });
+        const loansData = await loansRes.json();
+        setLoans(loansData.loans);
+      } else {
+        setError('Wrong admin password!');
+      }
+    } catch { setError('Cannot connect to server.'); }
+    finally { setLoading(false); }
+  };
+
+  if (!isAuthenticated) return (
+    <div style={{ maxWidth: '400px', margin: '100px auto', padding: '30px', background: '#0d2137', borderRadius: '12px' }}>
+      <h2 style={{ color: '#f49e2f', textAlign: 'center' }}>Admin Access</h2>
+      <form onSubmit={handleAdminLogin} className="auth-form">
+        <div className="input-group">
+          <label>Admin Password</label>
+          <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Enter admin password" required />
+        </div>
+        {error && <p style={{ color: 'red', fontSize: '13px' }}>{error}</p>}
+        <button type="submit" className="auth-submit-btn" disabled={loading}>{loading ? 'Verifying...' : 'Enter Admin Panel'}</button>
+      </form>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <h2 style={{ color: '#f49e2f' }}>Admin Dashboard</h2>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({users.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({loans.length})</button>
+      </div>
+      {activeTab === 'users' && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
+            <thead><tr style={{ background: '#1a3a5c' }}>
+              <th style={th}>ID</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>Joined</th>
+            </tr></thead>
+            <tbody>{users.map(u => (
+              <tr key={u.id} style={{ borderBottom: '1px solid #1e3a55' }}>
+                <td style={td}>{u.id}</td>
+                <td style={td}>{u.first_name} {u.last_name}</td>
+                <td style={td}>{u.email}</td>
+                <td style={td}>{u.phone}</td>
+                <td style={td}>{new Date(u.createdAt).toLocaleDateString()}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {activeTab === 'loans' && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
+            <thead><tr style={{ background: '#1a3a5c' }}>
+              <th style={th}>ID</th><th style={th}>User</th><th style={th}>Email</th><th style={th}>Type</th><th style={th}>Amount</th><th style={th}>Status</th><th style={th}>Date</th>
+            </tr></thead>
+            <tbody>{loans.map(l => (
+              <tr key={l.id} style={{ borderBottom: '1px solid #1e3a55' }}>
+                <td style={td}>{l.id}</td>
+                <td style={td}>{l.first_name} {l.last_name}</td>
+                <td style={td}>{l.email}</td>
+                <td style={td}>{l.loan_type}</td>
+                <td style={td}>KES {Number(l.amount).toLocaleString()}</td>
+                <td style={td}>{l.status}</td>
+                <td style={td}>{new Date(l.date_applied).toLocaleDateString()}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -667,6 +763,7 @@ export default function App() {
                   )}
                 </div>
                 <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => handleMobileNavClick('settings')}>⚙ Settings</button>
+                <button className={`nav-item ${currentView === 'admin' ? 'active' : ''}`} onClick={() => handleMobileNavClick('admin')}>🛡 Admin</button>
                 <button className="nav-item sidebar-logout-btn" onClick={handleLogout}>Logout</button>
               </nav>
             </aside>
@@ -893,6 +990,8 @@ export default function App() {
                   <button>Update Profile</button>
                 </div>
               )}
+
+              {currentView === 'admin' && <AdminView />}
             </main>
           </div>
         )}
