@@ -337,6 +337,71 @@ function AuthView({
   );
 }
 
+function TransactionHistory({ userId }) {
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+
+  useEffect(() => {
+    if (!userId) return;
+    fetch(`${BASE_URL}/api/transactions/${userId}`)
+      .then(res => res.json())
+      .then(data => { setTransactions(data.transactions || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [userId]);
+
+  return (
+    <div className="view-fade-in">
+      <h2>Transaction History</h2>
+      {loading ? (
+        <p style={{ color: 'whitesmoke' }}>Loading...</p>
+      ) : transactions.length === 0 ? (
+        <p style={{ color: 'whitesmoke' }}>No transactions found.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#1a3a5c' }}>
+                <th style={thStyle}>Date</th>
+                <th style={thStyle}>Type</th>
+                <th style={thStyle}>Amount (KES)</th>
+                <th style={thStyle}>Mode</th>
+                <th style={thStyle}>Receipt/Account</th>
+                <th style={thStyle}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map(t => (
+                <tr key={t.id} style={{ borderBottom: '1px solid #1e3a55' }}>
+                  <td style={tdStyle}>{new Date(t.date_applied).toLocaleDateString()}</td>
+                  <td style={tdStyle}>{t.loan_type}</td>
+                  <td style={{ ...tdStyle, color: t.amount < 0 ? '#2ecc71' : '#e74c3c' }}>
+                    {t.amount < 0 ? '-' : '+'} KES {Math.abs(Number(t.amount)).toLocaleString()}
+                  </td>
+                  <td style={tdStyle}>{t.payment_mode}</td>
+                  <td style={tdStyle}>{t.account_number || '-'}</td>
+                  <td style={tdStyle}>
+                    <span style={{ 
+                      padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
+                      background: t.status === 'Disbursed' ? '#1a5c2a' : '#5c1a1a',
+                      color: t.status === 'Disbursed' ? '#2ecc71' : '#e74c3c'
+                    }}>{t.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const thStyle = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
+const tdStyle = { padding: '10px' };
+
+
+
 const th = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
 const td = { padding: '10px' };
 
@@ -779,6 +844,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
+                <button className={`nav-item ${currentView === 'transactions' ? 'active' : ''}`} onClick={() => handleMobileNavClick('transactions')}>📋 Transactions</button>
                 <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => handleMobileNavClick('settings')}>⚙ Settings</button>
                 <button className={`nav-item ${currentView === 'admin' ? 'active' : ''}`} onClick={() => handleMobileNavClick('admin')}>🛡 Admin</button>
                 <button className="nav-item sidebar-logout-btn" onClick={handleLogout}>Logout</button>
@@ -997,6 +1063,10 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {currentView === 'transactions' && (
+                <TransactionHistory userId={userProfile.id} />
               )}
 
               {currentView === 'settings' && (
