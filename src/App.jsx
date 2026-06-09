@@ -536,6 +536,23 @@ export default function App() {
         setPaymentStatus('📲 STK Push Prompt Sent! Check your phone and enter your M-Pesa PIN.');
         setPaymentError(false);
         triggerAlert('STK prompt sent to your phone!', 'success');
+
+        // Poll balance every 5 seconds for 60 seconds
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts++;
+          try {
+            const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+            const balRes = await fetch(`${BASE_URL}/api/balance/${userProfile.id}`);
+            const balData = await balRes.json();
+            if (balData.loanBalance !== loanBalance) {
+              setLoanBalance(balData.loanBalance);
+              setPaymentStatus('✅ Payment received! Your balance has been updated.');
+              clearInterval(poll);
+            }
+          } catch {}
+          if (attempts >= 12) clearInterval(poll);
+        }, 5000);
       }
     } catch (error) {
       console.error("M-Pesa error trace:", error);
