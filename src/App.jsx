@@ -348,7 +348,7 @@ function TransactionHistory({ userId }) {
       .then(res => res.json())
       .then(data => { setTransactions(data.transactions || []); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [userId]);
+  }, [userId, BASE_URL]);
 
   return (
     <div className="view-fade-in">
@@ -441,10 +441,10 @@ function AdminView() {
       <form onSubmit={handleAdminLogin} className="auth-form">
         <div className="input-group">
           <label>Admin Password</label>
-          <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Enter admin password" required />
+          <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Enter password" required />
         </div>
         {error && <p style={{ color: 'red', fontSize: '13px' }}>{error}</p>}
-        <button type="submit" className="auth-submit-btn" disabled={loading}>{loading ? 'Verifying...' : 'Enter Admin Panel'}</button>
+        <button type="submit" className="auth-submit-btn" disabled={loading}>{loading ? 'Verifying...' : 'Enter'}</button>
       </form>
     </div>
   );
@@ -577,14 +577,14 @@ export default function App() {
     } else if (!formattedPhone.startsWith('254')) {
       setPaymentLoading(false);
       setPaymentError(true);
-      setPaymentStatus('❌ Invalid phone format. Use: 254XXXXXXXXX or 07XXXXXXXX');
+      setPaymentStatus(' Invalid phone format. Use: 254XXXXXXXXX or 07XXXXXXXX');
       triggerAlert('Invalid phone number format!', 'error-red');
       return;
     }
     if (formattedPhone.length !== 12 || isNaN(formattedPhone)) {
       setPaymentLoading(false);
       setPaymentError(true);
-      setPaymentStatus('❌ Phone must be 12 digits (254XXXXXXXXX)');
+      setPaymentStatus(' Phone must be 12 digits (254XXXXXXXXX)');
       triggerAlert('Phone must be 12 digits!', 'error-red');
       return;
     }
@@ -598,7 +598,7 @@ export default function App() {
         transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
       });
       if (response.status === 200) {
-        setPaymentStatus('📲 STK Push Prompt Sent! Check your phone and enter your M-Pesa PIN.');
+        setPaymentStatus('Check your phone and enter your M-Pesa PIN.');
         setPaymentError(false);
         triggerAlert('STK prompt sent to your phone!', 'success');
 
