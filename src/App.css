@@ -344,23 +344,39 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 9999;
-  padding: 16px 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: min(90vw, 420px);
+  padding: 12px 18px;
   text-align: center;
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.4;
   border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  border: 1px solid currentColor;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  box-sizing: border-box;
   animation: bottomSlideUp 0.25s ease-out;
+  word-break: break-word;
 }
 
+.alert-banner.success {
+  background-color: #d8f5df;
+  color: #096b24;
+}
+
+.alert-banner.logout,
+.alert-banner.error,
 .alert-banner.error-red {
-  background-color: #d32f2f;
-  color: #ffffff;
+  background-color: #ffe1e1;
+  color: #a40000;
 }
 
 .alert-banner.info, .alert-banner.processing {
-  background-color: #2980b9;
-  color: #ffffff;
+  background-color: #dcefff;
+  color: #075985;
 }
 
 @keyframes bottomSlideUp {
@@ -550,17 +566,139 @@ body {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
-  border: 1px solid #e1e8ed;
+  border: 1px solid rgba(225, 232, 237, 0.35);
   padding: 30px;
   border-radius: 8px;
   box-sizing: border-box;
-  background-color: #010218;
+  background-color: #071522;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  align-items: center;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.loan-status-view {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.loan-status-header-row {
+  display: flex;
+  justify-content: space-between;
   align-items: flex-start;
-  
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.loan-status-header-row h2 {
+  margin: 0;
+}
+
+.loan-status-summary {
+  margin: 8px 0 0 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  color: #e7eef8 !important;
+}
+
+.loan-status-refresh-btn {
+  min-width: 120px;
+  min-height: 40px;
+  margin-top: 0 !important;
+  padding: 10px 16px !important;
+  border-radius: 6px !important;
+  background-color: #0f766e !important;
+  color: #ffffff !important;
+}
+
+.loan-status-refresh-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.loan-status-badge {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.loan-status-badge.status-success {
+  background-color: #d8f5df;
+  color: #096b24;
+}
+
+.loan-status-badge.status-paid,
+.loan-status-badge.status-info {
+  background-color: #dcefff;
+  color: #075985;
+}
+
+.loan-status-badge.status-pending {
+  background-color: #fff3cd;
+  color: #8a5a00;
+}
+
+.loan-status-badge.status-danger {
+  background-color: #ffe1e1;
+  color: #a40000;
+}
+
+.loan-status-detail-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0 18px;
+}
+
+.loan-status-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(231, 238, 248, 0.18);
+  min-width: 0;
+}
+
+.loan-status-detail span {
+  color: #b8c7d9;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.loan-status-detail strong {
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.loan-status-error {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid #ff9c9c;
+  background-color: #ffe1e1;
+  color: #a40000;
+  font-weight: 800;
+  box-sizing: border-box;
+}
+
+.loan-status-empty-text {
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #e7eef8 !important;
+  text-align: left !important;
 }
 
 .status-narrative {
@@ -840,5 +978,14 @@ body {
   .detail-row .val {
     text-align: left !important;
     word-break: break-all;
+  }
+
+  .loan-status-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .loan-status-refresh-btn {
+    width: 100%;
   }
 }

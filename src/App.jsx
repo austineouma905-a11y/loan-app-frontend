@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+
 function AuthView({ 
   authMode, setAuthMode, email, setEmail, phone, setPhone, 
   firstName, setFirstName, lastName, setLastName,
@@ -46,8 +48,10 @@ function AuthView({
   // Step 1 Send Email Verification Trace
   const onEmailSubmit = async (e) => {
     e.preventDefault();
+    const cleanEmail = normalizeEmail(email);
+    setEmail(cleanEmail);
     setIsSubmitting(true);
-    const success = await handleForgotPasswordSubmit();
+    const success = await handleForgotPasswordSubmit(cleanEmail);
     setIsSubmitting(false);
     if (success) {
       setForgotStep(2);
@@ -63,8 +67,9 @@ function AuthView({
 
     setIsSubmitting(true);
     try {
+      const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/verify-otp`, { email, otp: fullOtp });
+      const response = await axios.post(`${BASE_URL}/api/verify-otp`, { email: cleanEmail, otp: fullOtp });
       if (response.status === 200) {
         setForgotStep(3);
       }
@@ -89,10 +94,11 @@ function AuthView({
 
     setIsSubmitting(true);
     try {
+      const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email, newPassword: password });
+      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email: cleanEmail, newPassword: password });
       if (response.status === 200) {
-        alert("Password updated successfully via database engine!");
+        alert("Password updated successfully!");
         setForgotStep(1);
         setOtpArray(['', '', '', '']);
         setPassword('');
@@ -161,7 +167,7 @@ function AuthView({
                   <span>Time Count {timer} seconds</span>
                 ) : (
                   <span 
-                    onClick={() => { setTimer(60); handleForgotPasswordSubmit(); }} 
+                    onClick={() => { setTimer(60); handleForgotPasswordSubmit(normalizeEmail(email)); }} 
                     style={{ color: '#f49e2f', cursor: 'pointer', textDecoration: 'underline' }}
                   >
                     Resend Code?
@@ -444,6 +450,189 @@ const tdStyle = { padding: '10px' };
 const th = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
 const td = { padding: '10px' };
 
+const getLoanValue = (loan, keys, fallback = '') => {
+  if (!loan) return fallback;
+
+  for (const key of keys) {
+    const value = loan[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return fallback;
+};
+
+const formatKes = (amount) => {
+  const numericAmount = Number(amount);
+  const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
+  return `KES ${safeAmount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+};
+
+const formatLoanDate = (dateValue) => {
+  if (!dateValue) return 'Not available';
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return 'Not available';
+
+  return date.toLocaleDateString();
+};
+
+const getLatestLoanRecord = (records = []) => {
+  if (!Array.isArray(records)) return null;
+
+  return records
+    .filter((record) => record && (
+      getLoanValue(record, ['loan_type', 'loanType']) ||
+      getLoanValue(record, ['status']) ||
+      getLoanValue(record, ['amount'])
+    ))
+    .sort((first, second) => {
+      const firstDate = new Date(getLoanValue(first, ['date_applied', 'createdAt', 'created_at', 'date'])).getTime() || 0;
+      const secondDate = new Date(getLoanValue(second, ['date_applied', 'createdAt', 'created_at', 'date'])).getTime() || 0;
+
+      if (secondDate !== firstDate) return secondDate - firstDate;
+
+      return Number(getLoanValue(second, ['id'], 0)) - Number(getLoanValue(first, ['id'], 0));
+    })[0] || null;
+};
+
+const getLoanStatusMeta = (status, hasLoanInfo, loanBalance) => {
+  if (!hasLoanInfo) {
+    return {
+      tone: 'info',
+      label: 'No Loan',
+      message: 'No loan application has been recorded for this account.'
+    };
+  }
+
+  const rawStatus = String(status || '').trim();
+  const normalizedStatus = rawStatus.toLowerCase();
+  const label = rawStatus || (Number(loanBalance) > 0 ? 'Active' : 'Status Pending');
+
+  if (
+    Number(loanBalance) <= 0 &&
+    ['approved', 'disbursed', 'active'].some((statusKey) => normalizedStatus.includes(statusKey))
+  ) {
+    return {
+      tone: 'paid',
+      label: 'Paid',
+      message: 'This loan has been fully settled.'
+    };
+  }
+
+  if (['paid', 'complete', 'completed', 'cleared', 'settled'].some((statusKey) => normalizedStatus.includes(statusKey))) {
+    return {
+      tone: 'paid',
+      label,
+      message: 'This loan has been fully settled.'
+    };
+  }
+
+  if (['reject', 'declined', 'failed', 'overdue', 'default'].some((statusKey) => normalizedStatus.includes(statusKey))) {
+    return {
+      tone: 'danger',
+      label,
+      message: 'This loan needs attention. Please review the status details.'
+    };
+  }
+
+  if (['pending', 'review', 'processing', 'progress'].some((statusKey) => normalizedStatus.includes(statusKey))) {
+    return {
+      tone: 'pending',
+      label,
+      message: 'Your loan request is being reviewed.'
+    };
+  }
+
+  if (['approved', 'disbursed', 'active'].some((statusKey) => normalizedStatus.includes(statusKey))) {
+    return {
+      tone: 'success',
+      label,
+      message: 'Your loan has been approved.'
+    };
+  }
+
+  return {
+    tone: 'info',
+    label,
+    message: 'Your loan record is available.'
+  };
+};
+
+function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) {
+  const hasLoanInfo = Boolean(latestLoan) || Number(loanBalance) > 0;
+  const rawStatus = getLoanValue(latestLoan, ['status'], Number(loanBalance) > 0 ? 'Active' : '');
+  const statusMeta = getLoanStatusMeta(rawStatus, hasLoanInfo, loanBalance);
+  const loanType = getLoanValue(latestLoan, ['loan_type', 'loanType'], 'Loan Account');
+  const loanAmount = getLoanValue(latestLoan, ['amount', 'loan_amount'], loanBalance);
+  const dateApplied = getLoanValue(latestLoan, ['date_applied', 'createdAt', 'created_at', 'date']);
+  const paymentMode = getLoanValue(latestLoan, ['payment_mode', 'paymentMode'], 'Not available');
+  const accountNumber = getLoanValue(latestLoan, ['account_number', 'accountNumber'], 'Not available');
+
+  return (
+    <div className="view-fade-in loan-status-view">
+      <div className="loan-status-header-row">
+        <div>
+          <h2>Current Loan Application Status</h2>
+          <p className="loan-status-summary">{statusMeta.message}</p>
+        </div>
+        <button type="button" className="loan-status-refresh-btn" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      <div className="status-tracker-card-layout">
+        {error && <div className="loan-status-error">{error}</div>}
+
+        {loading && !hasLoanInfo ? (
+          <p className="loan-status-empty-text">Loading loan status...</p>
+        ) : (
+          <>
+            <div className={`loan-status-badge status-${statusMeta.tone}`}>
+              {statusMeta.label}
+            </div>
+
+            {hasLoanInfo ? (
+              <div className="loan-status-detail-grid">
+                <div className="loan-status-detail">
+                  <span>Loan Type</span>
+                  <strong>{loanType}</strong>
+                </div>
+                <div className="loan-status-detail">
+                  <span>Requested Amount</span>
+                  <strong>{formatKes(loanAmount)}</strong>
+                </div>
+                <div className="loan-status-detail">
+                  <span>Outstanding Balance</span>
+                  <strong>{formatKes(loanBalance)}</strong>
+                </div>
+                <div className="loan-status-detail">
+                  <span>Date Applied</span>
+                  <strong>{formatLoanDate(dateApplied)}</strong>
+                </div>
+                <div className="loan-status-detail">
+                  <span>Payment Mode</span>
+                  <strong>{paymentMode}</strong>
+                </div>
+                <div className="loan-status-detail">
+                  <span>Receiving Account</span>
+                  <strong>{accountNumber}</strong>
+                </div>
+              </div>
+            ) : (
+              <p className="loan-status-empty-text">No active loan application found.</p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AdminView() {
   const [secret, setSecret] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -558,6 +747,7 @@ export default function App() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [notification, setNotification] = useState({ message: '', type: '' });
+  const notificationTimerRef = useRef(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
   
@@ -579,6 +769,9 @@ export default function App() {
   const [paymentMode, setPaymentMode] = useState('Mobile'); 
   const [disbursementAccount, setDisbursementAccount] = useState('');
   const [loanBalance, setLoanBalance] = useState(0);
+  const [latestLoan, setLatestLoan] = useState(null);
+  const [loanStatusLoading, setLoanStatusLoading] = useState(false);
+  const [loanStatusError, setLoanStatusError] = useState('');
 
   const [userProfile, setUserProfile] = useState({
     id: null,
@@ -600,14 +793,46 @@ export default function App() {
   }, [userProfile.phone]);
 
   const loanTypes = [
-    { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '5.5% p.a.', amounts: [5000, 10000, 25000] },
-    { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '10% p.a.', amounts: [50000, 100000, 250000] },
-    { id: 3, name: 'Emergency Loan', desc: 'Instant access short-term cash for immediate settlement matrices.', rate: '4.2% p.a.', amounts: [2000, 5000, 12000] }
+    { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '5.5% p.a.', amounts: [5000, 10000, 15000] },
+    { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '10% p.a.', amounts: [50000, 100000, 150000] },
+    { id: 3, name: 'Emergency Loan', desc: 'Instant short-term cash Loans for immediate bill settlement', rate: '4.2% p.a.', amounts: [2500, 5000, 10000] }
   ];
 
   const triggerAlert = (message, type) => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current);
+    }
+
     setNotification({ message, type });
-    setTimeout(() => setNotification({ message: '', type: '' }), 3500);
+    notificationTimerRef.current = setTimeout(() => {
+      setNotification({ message: '', type: '' });
+      notificationTimerRef.current = null;
+    }, 4500);
+  };
+
+  const refreshLatestLoanStatus = async (userId = userProfile.id) => {
+    if (!userId) return;
+
+    setLoanStatusLoading(true);
+    setLoanStatusError('');
+
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await fetch(`${BASE_URL}/api/transactions/${userId}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        const records = data.transactions || data.loans || data.loanRecords || [];
+        const latestRecord = getLatestLoanRecord(records);
+        setLatestLoan((currentLoan) => latestRecord || currentLoan);
+      } else {
+        setLoanStatusError(data.message || 'Unable to load loan status right now.');
+      }
+    } catch (error) {
+      setLoanStatusError('Cannot connect to loan status records.');
+    } finally {
+      setLoanStatusLoading(false);
+    }
   };
 
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
@@ -620,7 +845,7 @@ export default function App() {
     }
 
     if (loanBalance <= 0) {
-      triggerAlert('You do not have any active outstanding balance to repay.', 'error-red');
+      triggerAlert('You do not have anoutstanding balance to repay.', 'error-red');
       return;
     }
     if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
@@ -630,7 +855,7 @@ export default function App() {
 
     setPaymentLoading(true);
     setPaymentError(false);
-    setPaymentStatus('Initiating secure M-Pesa STK Push sequence...');
+    setPaymentStatus('Initiating Payment...');
     let formattedPhone = mpesaPhone.trim();
     if (formattedPhone.startsWith('0')) {
       formattedPhone = '254' + formattedPhone.substring(1);
@@ -673,8 +898,14 @@ export default function App() {
             const balRes = await fetch(`${BASE_URL}/api/balance/${userProfile.id}`);
             const balData = await balRes.json();
             if (balData.loanBalance !== loanBalance) {
-              setLoanBalance(balData.loanBalance);
-              setPaymentStatus('✅ Payment received! Your balance has been updated.');
+              const updatedBalance = Number(balData.loanBalance || 0);
+              setLoanBalance(updatedBalance);
+              if (updatedBalance <= 0) {
+                setLatestLoan((currentLoan) => currentLoan ? { ...currentLoan, status: 'Paid' } : currentLoan);
+              } else {
+                refreshLatestLoanStatus(userProfile.id);
+              }
+              setPaymentStatus('Payment received! Check Your Loan balance.');
               clearInterval(poll);
             }
           } catch {}
@@ -720,14 +951,23 @@ export default function App() {
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     try {
+      const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.put(`${BASE_URL}/api/users/${userProfile.id}`, { firstName, lastName, phone });
+      const response = await axios.post(`${BASE_URL}/api/update-profile`, {
+        userId: userProfile.id,
+        firstName,
+        lastName,
+        email: cleanEmail,
+        phone
+      });
       if (response.status === 200) {
         setUserProfile({
           ...userProfile,
           name: `${firstName} ${lastName}`.trim(),
+          email: cleanEmail,
           phone: phone
         });
+        setEmail(cleanEmail);
         triggerAlert("Profile updated successfully!", "success");
         setSettingsMode('home');
       }
@@ -743,6 +983,9 @@ export default function App() {
     setAuthMode('login');
     setSettingsMode('home');
     setLoanBalance(0);
+    setLatestLoan(null);
+    setLoanStatusError('');
+    setLoanStatusLoading(false);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
     setIsMenuOpen(false);
     setPaymentStatus('');
@@ -761,21 +1004,24 @@ export default function App() {
     return;
   }
     try {
+      const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email, phone, password })
+        body: JSON.stringify({ firstName, lastName, email: cleanEmail, phone, password })
       });
       const data = await response.json();
       if (response.ok) {
         setIsLoggedIn(true);
         setCurrentView('dashboard_home');
         setLoanBalance(0);
+        setLatestLoan(null);
+        setLoanStatusError('');
         setUserProfile({
           id: data.userId,
           name: `${firstName} ${lastName}`.trim(),
-          email: email,
+          email: cleanEmail,
           phone: phone,
           loanId: data.loanId
         });
@@ -785,23 +1031,35 @@ export default function App() {
         triggerAlert(data.message || 'Signup validation error', 'logout');
       }
     } catch (error) {
-      triggerAlert('Cannot bridge connection to Node.js backend.', 'logout');
+      triggerAlert('Cannot bridge connection to backend.', 'logout');
     }
   };
 
   const handleLoginSubmit = async () => {
     try {
+      const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: cleanEmail, password })
       });
       const data = await response.json();
       if (response.ok) {
+        const loginLoan = data.latestLoan || data.loan || (data.loanStatus ? {
+          status: data.loanStatus,
+          amount: data.loanAmount || data.loanBalance || 0,
+          loan_type: data.loanType || 'Loan Account',
+          date_applied: data.dateApplied || data.loanDate,
+          payment_mode: data.paymentMode,
+          account_number: data.accountNumber
+        } : null);
+
         setIsLoggedIn(true);
         setCurrentView('dashboard_home');
         setLoanBalance(data.loanBalance || 0);
+        setLatestLoan(loginLoan);
+        setLoanStatusError('');
         setUserProfile({
           id: data.userId,
           name: data.name,
@@ -809,22 +1067,25 @@ export default function App() {
           phone: data.phone,
           loanId: data.loanId
         });
-        triggerAlert('Login authorized via MySQL!', 'success');
+        refreshLatestLoanStatus(data.userId);
+        triggerAlert('Successfully logged in!', 'success');
         setEmail(''); setPassword('');
       } else {
         triggerAlert(data.message || 'Invalid username or password!', 'error-red');
       }
     } catch (error) {
-      triggerAlert('Cannot bridge connection to Node.js backend.', 'logout');
+      triggerAlert('Cannot bridge connection to backend.', 'logout');
     }
   };
-  const handleForgotPasswordSubmit = async () => {
+  const handleForgotPasswordSubmit = async (emailValue = email) => {
     try {
+      const cleanEmail = normalizeEmail(emailValue);
+      setEmail(cleanEmail);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email: cleanEmail })
       });
       const data = await response.json();
       if (response.ok) {
@@ -835,7 +1096,7 @@ export default function App() {
         return false;
       }
     } catch (error) {
-      triggerAlert('Cannot bridge connection to Node.js backend pipelines.', 'logout');
+      triggerAlert('Cannot bridge connection to backend.', 'logout');
       return false;
     }
   };
@@ -852,6 +1113,7 @@ export default function App() {
   const handleMobileNavClick = (viewName) => {
     setCurrentView(viewName);
     if (viewName !== 'settings') setSettingsMode('home');
+    if (viewName === 'loan_status') refreshLatestLoanStatus();
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
 
@@ -881,14 +1143,26 @@ export default function App() {
       const data = await response.json();
 
       if (response.ok) {
+        const requestedLoan = data.loan || data.latestLoan || {
+          id: data.loanId || data.id || `local-${Date.now()}`,
+          loan_type: selectedLoan.name,
+          amount: parseFloat(finalAmount),
+          status: data.status || data.loanStatus || 'Disbursed',
+          date_applied: data.date_applied || data.dateApplied || new Date().toISOString(),
+          payment_mode: paymentMode,
+          account_number: disbursementAccount
+        };
+
         setLoanBalance(data.newTotalBalance); 
+        setLatestLoan(requestedLoan);
+        setLoanStatusError('');
         triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} processed securely!`, 'success');
         setCurrentView('dashboard_home'); 
       } else {
         triggerAlert(data.message || 'Error processing loan request on backend server.', 'logout');
       }
     } catch (error) {
-      triggerAlert('Cannot bridge connection to database pipeline engines.', 'logout');
+      triggerAlert('Cannot bridge connection to backend.', 'logout');
     }
   };
 
@@ -1135,16 +1409,13 @@ export default function App() {
               )}
 
               {currentView === 'loan_status' && (
-                <div className="view-fade-in">
-                  <h2>Current Loan Application Status</h2>
-                  <div className="status-tracker-card-layout">
-                    <div className="status-badge indicator disbursement_in_progress" style={{ backgroundColor: '#ed0404', color: '#0d0d0f', fontWeight: '700' }}>Disbursed</div>
-                    <p style={{ marginTop: '15px', fontWeight: '500', color: '#f6f7f9' }}>
-                      Status text: <span className="status-highlight-text" style={{ color: '#4093ca', fontWeight: 'bold' }}>Disbursement In Progress</span>
-                    </p>
-                    <p>Your application verification credentials matched successfully. Settlement engines are active.</p>
-                  </div>
-                </div>
+                <LoanStatusView
+                  latestLoan={latestLoan}
+                  loanBalance={loanBalance}
+                  loading={loanStatusLoading}
+                  error={loanStatusError}
+                  onRefresh={() => refreshLatestLoanStatus()}
+                />
               )}
 
               {currentView === 'repay_partially' && (
@@ -1181,7 +1452,7 @@ export default function App() {
               {currentView === 'settings' && (
                 <div className="view-fade-in action-panel-card" style={{ maxWidth: '500px', margin: '0 auto' }}>
                   <h2>Preferences ⚙</h2>
-                  <p>Database Connector State: <strong>MySQL Connection (Port 3307)</strong></p>
+                  <p>Database Connector State: <strong>Change Password if needed and also <br /> Update your profile information from here </strong></p>
 
                   {settingsMode === 'home' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
