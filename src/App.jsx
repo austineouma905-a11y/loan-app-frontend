@@ -560,6 +560,12 @@ export default function App() {
   const [notification, setNotification] = useState({ message: '', type: '' });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
+  
+  // Settings sub-view states and toggles
+  const [settingsMode, setSettingsMode] = useState('home'); // home, password, profile
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -686,10 +692,56 @@ export default function App() {
     }
   };
 
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault();
+    if (password.length < 8) {
+      triggerAlert("Password must be at least 8 characters long.", "error-red");
+      return;
+    }
+    if (password !== confirmPassword) {
+      triggerAlert("Passwords do not match!", "error-red");
+      return;
+    }
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email: userProfile.email, newPassword: password });
+      if (response.status === 200) {
+        triggerAlert("Password updated successfully!", "success");
+        setSettingsMode('home');
+        setPassword(''); 
+        setConfirmPassword('');
+      }
+    } catch (error) {
+      console.error("Password Update Error:", error);
+      triggerAlert(error.response?.data?.message || "Cannot connect to server.", "error-red"); 
+    }
+  };
+
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+      const response = await axios.put(`${BASE_URL}/api/users/${userProfile.id}`, { firstName, lastName, phone });
+      if (response.status === 200) {
+        setUserProfile({
+          ...userProfile,
+          name: `${firstName} ${lastName}`.trim(),
+          phone: phone
+        });
+        triggerAlert("Profile updated successfully!", "success");
+        setSettingsMode('home');
+      }
+    } catch (error) {
+      console.error("Profile Update Error:", error);
+      triggerAlert(error.response?.data?.message || "Cannot connect to server.", "error-red"); 
+    }
+  };
+
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentView('dashboard_home');
     setAuthMode('login');
+    setSettingsMode('home');
     setLoanBalance(0);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
     setIsMenuOpen(false);
@@ -799,6 +851,7 @@ export default function App() {
 
   const handleMobileNavClick = (viewName) => {
     setCurrentView(viewName);
+    if (viewName !== 'settings') setSettingsMode('home');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
 
@@ -1126,11 +1179,101 @@ export default function App() {
               )}
 
               {currentView === 'settings' && (
-                <div className="view-fade-in">
+                <div className="view-fade-in action-panel-card" style={{ maxWidth: '500px', margin: '0 auto' }}>
                   <h2>Preferences ⚙</h2>
                   <p>Database Connector State: <strong>MySQL Connection (Port 3307)</strong></p>
-                  <button>Change Password</button>
-                  <button>Update Profile</button>
+
+                  {settingsMode === 'home' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
+                      <button className="auth-submit-btn" onClick={() => { setPassword(''); setConfirmPassword(''); setSettingsMode('password'); }}>
+                        Change Password
+                      </button>
+                      <button className="auth-submit-btn" onClick={() => {
+                        const names = userProfile.name.split(' ');
+                        setFirstName(names[0] || '');
+                        setLastName(names.slice(1).join(' ') || '');
+                        setEmail(userProfile.email);
+                        setPhone(userProfile.phone);
+                        setSettingsMode('profile');
+                      }}>
+                        Update Profile
+                      </button>
+                    </div>
+                  )}
+
+                  {settingsMode === 'password' && (
+                    <form onSubmit={handlePasswordUpdate} className="auth-form">
+                      <div className="input-group">
+                        <label>New Password</label>
+                        <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input 
+                            type={showPassword ? "text" : "password"} 
+                            value={password} 
+                            onChange={(e) => setPassword(e.target.value)} 
+                            placeholder="Minimum 8 characters" 
+                            style={{ width: '100%', paddingRight: '40px' }}
+                            required 
+                          />
+                          <span 
+                            className="password-toggle-eye" 
+                            onClick={() => setShowPassword(!showPassword)}
+                            style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+                          >
+                            {showPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="input-group">
+                        <label>Confirm New Password</label>
+                        <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input 
+                            type={showConfirmPassword ? "text" : "password"} 
+                            value={confirmPassword} 
+                            onChange={(e) => setConfirmPassword(e.target.value)} 
+                            placeholder="Confirm password" 
+                            style={{ width: '100%', paddingRight: '40px' }}
+                            required 
+                          />
+                          <span 
+                            className="password-toggle-eye" 
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+                          >
+                            {showConfirmPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="form-action-buttons">
+                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setSettingsMode('home')}>Cancel</button>
+                        <button type="submit" className="auth-submit-btn">Update Password</button>
+                      </div>
+                    </form>
+                  )}
+
+                  {settingsMode === 'profile' && (
+                    <form onSubmit={handleProfileUpdate} className="auth-form">
+                      <div className="input-group">
+                        <label>First Name</label>
+                        <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                      </div>
+                      <div className="input-group">
+                        <label>Last Name</label>
+                        <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+                      </div>
+                      <div className="input-group">
+                        <label>Email</label>
+                        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                      </div>
+                      <div className="input-group">
+                        <label>Phone Number</label>
+                        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+                      </div>
+                      <div className="form-action-buttons">
+                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setSettingsMode('home')}>Cancel</button>
+                        <button type="submit" className="auth-submit-btn">Save Changes</button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
 
