@@ -19,16 +19,12 @@ function AuthView({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const inputRefs = [useRef(), useRef(), useRef(), useRef()];
-
-  // 60-Second Countdown Effect
   useEffect(() => {
     if (authMode === 'forgot' && forgotStep === 2 && timer > 0) {
       const countdown = setTimeout(() => setTimer(timer - 1), 1000);
       return () => clearTimeout(countdown);
     }
   }, [timer, forgotStep, authMode]);
-
-  // Handle shift focus forward when typing OTP digit
   const handleOtpChange = (val, index) => {
     const numericVal = val.replace(/[^0-9]/g, '');
 
@@ -41,14 +37,13 @@ function AuthView({
     }
   };
 
-  // Handle backspace focus shift backwards
   const handleOtpKeyDown = (e, index) => {
     if (e.key === 'Backspace' && !otpArray[index] && index > 0) {
       inputRefs[index - 1].current.focus();
     }
   };
 
-  // Step 1 Submission: Send Email Verification Trace
+  // Step 1 Send Email Verification Trace
   const onEmailSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -60,7 +55,7 @@ function AuthView({
     }
   };
 
-  // Step 2 Submission: Verify 4 Digits Over Backend Bridge
+  // Step 2 Verify 4 Digits Over Backend Bridge
   const onOtpSubmit = async (e) => {
     e.preventDefault();
     const fullOtp = otpArray.join('');
@@ -80,7 +75,7 @@ function AuthView({
     }
   };
 
-  // Step 3 Submission: Commit New Hashed Password to MySQL
+  // Step 3  Commit New Hashed Password to MySQL
   const onNewPasswordSubmit = async (e) => {
     e.preventDefault();
     if (password.length < 8) {
@@ -187,11 +182,43 @@ function AuthView({
             <form onSubmit={onNewPasswordSubmit} className="auth-form">
               <div className="input-group">
                 <label>New Password (-8 characters)</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" required />
+                <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)} 
+                    placeholder="Minimum 8 characters" 
+                    style={{ width: '100%', paddingRight: '40px' }}
+                    required 
+                  />
+                  <span 
+                    className="password-toggle-eye" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+                  >
+                    {showPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+                  </span>
+                </div>
               </div>
               <div className="input-group">
                 <label>Confirm New Password</label>
-                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm password" required />
+                <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input 
+                    type={showConfirmPassword ? "text" : "password"} 
+                    value={confirmPassword} 
+                    onChange={(e) => setConfirmPassword(e.target.value)} 
+                    placeholder="Confirm password" 
+                    style={{ width: '100%', paddingRight: '40px' }}
+                    required 
+                  />
+                  <span 
+                    className="password-toggle-eye" 
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+                  >
+                    {showConfirmPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+                  </span>
+                </div>
               </div>
               <button type="submit" className="auth-submit-btn" disabled={isSubmitting}>
                 Confirm new Password
@@ -232,9 +259,13 @@ function AuthView({
               <span 
                 className="password-toggle-eye" 
                 onClick={() => setShowPassword(!showPassword)}
-                style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+                style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
               >
-                {showPassword ? '👽' : '👁️'}
+                {showPassword ? (
+                  <ion-icon name="eye-off-outline"></ion-icon>
+                ) : (
+                  <ion-icon name="eye-outline"></ion-icon>
+                )}
               </span>
             </div>
 
@@ -300,9 +331,13 @@ function AuthView({
             <span 
               className="password-toggle-eye" 
               onClick={() => setShowPassword(!showPassword)}
-              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
             >
-              {showPassword ? '👽' : '👁️'}
+              {showPassword ? (
+                <ion-icon name="eye-off-outline"></ion-icon>
+              ) : (
+                <ion-icon name="eye-outline"></ion-icon>
+              )}
             </span>
           </div>
         </div>
@@ -321,9 +356,13 @@ function AuthView({
             <span 
               className="password-toggle-eye" 
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '18px' }}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
             >
-              {showConfirmPassword ? '👽' : '👁️'}
+              {showConfirmPassword ? (
+                <ion-icon name="eye-off-outline"></ion-icon>
+              ) : (
+                <ion-icon name="eye-outline"></ion-icon>
+              )}
             </span>
           </div>
         </div>
@@ -407,6 +446,7 @@ const td = { padding: '10px' };
 
 function AdminView() {
   const [secret, setSecret] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [users, setUsers] = useState([]);
   const [loans, setLoans] = useState([]);
@@ -441,7 +481,23 @@ function AdminView() {
       <form onSubmit={handleAdminLogin} className="auth-form">
         <div className="input-group">
           <label>Admin Password</label>
-          <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Enter password" required />
+          <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input 
+              type={showPassword ? "text" : "password"} 
+              value={secret} 
+              onChange={(e) => setSecret(e.target.value)} 
+              placeholder="Enter password" 
+              style={{ width: '100%', paddingRight: '40px' }}
+              required 
+            />
+            <span 
+              className="password-toggle-eye" 
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+            >
+              {showPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+            </span>
+          </div>
         </div>
         {error && <p style={{ color: 'red', fontSize: '13px' }}>{error}</p>}
         <button type="submit" className="auth-submit-btn" disabled={loading}>{loading ? 'Verifying...' : 'Enter'}</button>
