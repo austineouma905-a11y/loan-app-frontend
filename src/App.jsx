@@ -1701,7 +1701,7 @@ export default function App() {
 
               {currentView === 'repay_partially' && (
                 <div className="view-fade-in action-panel-card">
-                  <h2>Partial loan Repayment Option</h2>
+                  <h2 style={{color: '#ec7411'}}>Partial loan Repayment Option</h2>
                   <p className="repay-text" style={{color: 'whitesmoke'}}>Repay your Loan with any amount available, we offer flexible Loan Repayment!</p>
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
                     <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>{formatKes(loanBalance)}</strong></p>
