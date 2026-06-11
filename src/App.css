@@ -111,7 +111,7 @@ body {
 .user-profile-avatar {
   width: 40px;
   height: 40px;
-  background-color: #23184f;
+  background-color: #071083;
   color: white;
   border-radius: 50%;
   display: flex;
@@ -218,7 +218,7 @@ body {
   padding: 40px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #131431 0%, #03072d 100%);
+  background-color: #010c19;
   overflow-y: auto;
   min-height: 100%;
 }
@@ -817,7 +817,7 @@ body {
 }
 
 .auth-submit-btn {
-  background-color: rgb(220, 102, 6) !important;
+  background-color: rgb(219, 103, 9) !important;
   color: hsl(0, 0%, 100%);
   border: none !important;
   outline: none !important;

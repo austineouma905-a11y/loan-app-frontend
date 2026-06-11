@@ -1452,7 +1452,7 @@ export default function App() {
               {currentView === 'settings' && (
                 <div className="view-fade-in action-panel-card" style={{ maxWidth: '500px', margin: '0 auto' }}>
                   <h2>Preferences ⚙</h2>
-                  <p>Database Connector State: <strong>Change Password if needed and also <br /> Update your profile information from here </strong></p>
+                  <p><strong>Change Password if needed and also Update your profile information from here </strong></p>
 
                   {settingsMode === 'home' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
