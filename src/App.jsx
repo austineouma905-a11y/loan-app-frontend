@@ -4,11 +4,93 @@ import './App.css';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 
+const getPasswordStrength = (value = '') => {
+  let score = 0;
+  if (value.length >= 8) score += 1;
+  if (/[A-Z]/.test(value) && /[a-z]/.test(value)) score += 1;
+  if (/\d/.test(value)) score += 1;
+  if (/[^A-Za-z0-9]/.test(value)) score += 1;
+
+  if (!value) return { label: '', level: 'empty', score: 0 };
+  if (score <= 1) return { label: 'Weak', level: 'weak', score };
+  if (score <= 3) return { label: 'Medium', level: 'medium', score };
+  return { label: 'Strong', level: 'strong', score };
+};
+
+function LoadingSpinner({ label = 'Loading' }) {
+  return (
+    <span className="button-loading-content">
+      <span className="button-spinner" aria-hidden="true"></span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function PasswordStrengthMeter({ value }) {
+  const strength = getPasswordStrength(value);
+  if (!value) return null;
+
+  return (
+    <div className="password-strength-wrap">
+      <div className="password-strength-track">
+        <span className={`password-strength-fill strength-${strength.level}`}></span>
+      </div>
+      <span className={`password-strength-label strength-${strength.level}`}>
+        {strength.label}
+      </span>
+    </div>
+  );
+}
+
+const parseRate = (rateValue) => parseFloat(String(rateValue || '').replace(/[^\d.]/g, '')) || 0;
+
+const addMonthsToDate = (months) => {
+  const date = new Date();
+  date.setMonth(date.getMonth() + Number(months || 1));
+  return date;
+};
+
+const formatDateLong = (date) => (
+  date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+);
+
+const getLoanQuote = (amount, rateValue, durationMonths) => {
+  const principal = Number(amount);
+  const months = Math.max(parseInt(durationMonths, 10) || 1, 1);
+  const annualRate = parseRate(rateValue);
+  const safePrincipal = Number.isFinite(principal) && principal > 0 ? principal : 0;
+  const interest = safePrincipal * (annualRate / 100) * (months / 12);
+  const repaymentTotal = safePrincipal + interest;
+  const dueDate = addMonthsToDate(months);
+
+  return {
+    principal: safePrincipal,
+    annualRate,
+    months,
+    interest,
+    repaymentTotal,
+    dueDate,
+    dueDateIso: dueDate.toISOString().slice(0, 10),
+    dueDateLabel: formatDateLong(dueDate)
+  };
+};
+
+const getLoanAmountBounds = (loan) => {
+  const amounts = Array.isArray(loan?.amounts) && loan.amounts.length > 0 ? loan.amounts : [1000, 5000];
+  return {
+    min: Math.min(...amounts),
+    max: Math.max(...amounts),
+    step: 500
+  };
+};
+
+
 function AuthView({ 
   authMode, setAuthMode, email, setEmail, phone, setPhone, 
   firstName, setFirstName, lastName, setLastName,
   password, setPassword, confirmPassword, setConfirmPassword, 
-  handleLoginSubmit, handleSignUpSubmit, handleForgotPasswordSubmit 
+  handleLoginSubmit, handleSignUpSubmit, handleForgotPasswordSubmit,
+  signupLoading = false
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -346,6 +428,7 @@ function AuthView({
               )}
             </span>
           </div>
+          <PasswordStrengthMeter value={password} />
         </div>
         
         <div className="input-group">
@@ -373,7 +456,9 @@ function AuthView({
           </div>
         </div>
         
-        <button type="submit" className="auth-submit-btn">Sign-Up</button>
+        <button type="submit" className="auth-submit-btn" disabled={signupLoading}>
+          {signupLoading ? <LoadingSpinner label="Creating..." /> : 'Sign-Up'}
+        </button>
       </form>
       <p className="auth-toggle-text">
         Already have an account? <span onClick={() => setAuthMode('login')} className="auth-link">Login</span>
@@ -385,55 +470,76 @@ function AuthView({
 function TransactionHistory({ userId }) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
 
   useEffect(() => {
     if (!userId) return;
+    setLoading(true);
+    setError('');
     fetch(`${BASE_URL}/api/transactions/${userId}`)
-      .then(res => res.json())
-      .then(data => { setTransactions(data.transactions || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(res => res.json().then(data => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setError(data.message || 'Unable to load transactions.');
+          setTransactions([]);
+          return;
+        }
+        setTransactions(data.transactions || []);
+      })
+      .catch(() => setError('Cannot connect to transaction records.'))
+      .finally(() => setLoading(false));
   }, [userId, BASE_URL]);
 
   return (
-    <div className="view-fade-in">
+    <div className="view-fade-in transaction-history-view">
       <h2>Transaction History</h2>
       {loading ? (
-        <p style={{ color: 'whitesmoke' }}>Loading...</p>
+        <p className="loan-status-empty-text">Loading transactions...</p>
+      ) : error ? (
+        <div className="loan-status-error">{error}</div>
       ) : transactions.length === 0 ? (
-        <p style={{ color: 'whitesmoke' }}>No transactions found.</p>
+        <p className="loan-status-empty-text">No transactions found.</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
+        <div className="responsive-table-shell">
+          <table className="data-table">
             <thead>
-              <tr style={{ background: '#1a3a5c' }}>
-                <th style={thStyle}>Date</th>
-                <th style={thStyle}>Type</th>
-                <th style={thStyle}>Amount (KES)</th>
-                <th style={thStyle}>Mode</th>
-                <th style={thStyle}>Receipt/Account</th>
-                <th style={thStyle}>Status</th>
+              <tr>
+                <th>Date</th>
+                <th>Transaction Type</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>M-Pesa Receipt</th>
+                <th>Mode</th>
               </tr>
             </thead>
             <tbody>
-              {transactions.map(t => (
-                <tr key={t.id} style={{ borderBottom: '1px solid #1e3a55' }}>
-                  <td style={tdStyle}>{new Date(t.date_applied).toLocaleDateString()}</td>
-                  <td style={tdStyle}>{t.loan_type}</td>
-                  <td style={{ ...tdStyle, color: t.amount < 0 ? '#2ecc71' : '#e74c3c' }}>
-                    {t.amount < 0 ? '-' : '+'} KES {Math.abs(Number(t.amount)).toLocaleString()}
-                  </td>
-                  <td style={tdStyle}>{t.payment_mode}</td>
-                  <td style={tdStyle}>{t.account_number || '-'}</td>
-                  <td style={tdStyle}>
-                    <span style={{ 
-                      padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold',
-                      background: t.status === 'Disbursed' ? '#1a5c2a' : '#5c1a1a',
-                      color: t.status === 'Disbursed' ? '#2ecc71' : '#e74c3c'
-                    }}>{t.status}</span>
-                  </td>
-                </tr>
-              ))}
+              {transactions.map((t) => {
+                const type = t.transaction_type || (Number(t.amount) < 0 ? 'Repayment' : 'Loan Disbursement');
+                const displayStatus = t.display_status || (t.status === 'Disbursed' ? 'Completed' : t.status);
+                const receipt = t.receipt_number || (
+                  type === 'Repayment' && displayStatus === 'Pending'
+                    ? 'Awaiting callback'
+                    : t.account_number || '-'
+                );
+
+                return (
+                  <tr key={t.id}>
+                    <td>{formatLoanDate(t.completed_at || t.date_applied)}</td>
+                    <td>{type}</td>
+                    <td className={Number(t.amount) < 0 ? 'amount-credit' : 'amount-debit'}>
+                      {Number(t.amount) < 0 ? '-' : '+'} {formatKes(Math.abs(Number(t.amount)))}
+                    </td>
+                    <td>
+                      <span className={`table-status status-${String(displayStatus).toLowerCase()}`}>
+                        {displayStatus}
+                      </span>
+                    </td>
+                    <td>{receipt}</td>
+                    <td>{t.payment_mode || '-'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -442,13 +548,13 @@ function TransactionHistory({ userId }) {
   );
 }
 
-const thStyle = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
-const tdStyle = { padding: '10px' };
+// const thStyle = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
+// const tdStyle = { padding: '10px' };
 
 
 
-const th = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
-const td = { padding: '10px' };
+// const th = { padding: '10px', textAlign: 'left', color: '#f49e2f' };
+// const td = { padding: '10px' };
 
 const getLoanValue = (loan, keys, fallback = '') => {
   if (!loan) return fallback;
@@ -464,12 +570,9 @@ const getLoanValue = (loan, keys, fallback = '') => {
 };
 
 const formatKes = (amount) => {
-  const numericAmount = Number(amount);
-  const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
-  return `KES ${safeAmount.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
+    const numericAmount = Number(amount);
+    const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
+    return `KES ${safeAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const formatLoanDate = (dateValue) => {
@@ -639,29 +742,47 @@ function AdminView() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [users, setUsers] = useState([]);
   const [loans, setLoans] = useState([]);
-  const [activeTab, setActiveTab] = useState('users');
+  const [analytics, setAnalytics] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+
+  const loadAdminData = async () => {
+    const headers = { 'x-admin-secret': secret };
+    const [usersRes, loansRes, analyticsRes] = await Promise.all([
+      fetch(`${BASE_URL}/api/admin/users`, { headers }),
+      fetch(`${BASE_URL}/api/admin/loans`, { headers }),
+      fetch(`${BASE_URL}/api/admin/analytics`, { headers })
+    ]);
+
+    if (!usersRes.ok || !loansRes.ok || !analyticsRes.ok) {
+      throw new Error('Wrong admin password!');
+    }
+
+    const [usersData, loansData, analyticsData] = await Promise.all([
+      usersRes.json(),
+      loansRes.json(),
+      analyticsRes.json()
+    ]);
+
+    setUsers(usersData.users || []);
+    setLoans(loansData.loans || []);
+    setAnalytics(analyticsData);
+  };
 
   const handleAdminLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${BASE_URL}/api/admin/users`, { headers: { 'x-admin-secret': secret } });
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data.users);
-        setIsAuthenticated(true);
-        const loansRes = await fetch(`${BASE_URL}/api/admin/loans`, { headers: { 'x-admin-secret': secret } });
-        const loansData = await loansRes.json();
-        setLoans(loansData.loans);
-      } else {
-        setError('Wrong admin password!');
-      }
-    } catch { setError('Cannot connect to server.'); }
-    finally { setLoading(false); }
+      await loadAdminData();
+      setIsAuthenticated(true);
+    } catch (adminError) {
+      setError(adminError.message || 'Cannot connect to server.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isAuthenticated) return (
@@ -689,51 +810,111 @@ function AdminView() {
           </div>
         </div>
         {error && <p style={{ color: 'red', fontSize: '13px' }}>{error}</p>}
-        <button type="submit" className="auth-submit-btn" disabled={loading}>{loading ? 'Verifying...' : 'Enter'}</button>
+        <button type="submit" className="auth-submit-btn" disabled={loading}>
+          {loading ? <LoadingSpinner label="Verifying..." /> : 'Enter'}
+        </button>
       </form>
     </div>
   );
 
+  const pendingLoanRequests = analytics?.pendingLoanRequests || [];
+
   return (
-    <div style={{ padding: '20px' }}>
-      <h2 style={{ color: '#f49e2f' }}>Admin Dashboard</h2>
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+    <div className="admin-dashboard-view">
+      <div className="admin-header-row">
+        <h2>Admin Dashboard</h2>
+        <button type="button" className="loan-status-refresh-btn" onClick={loadAdminData} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      <div className="admin-overview-grid">
+        <div className="admin-stat-card">
+          <span>Total Active Users</span>
+          <strong>{analytics?.totalActiveUsers ?? users.length}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Total Disbursed</span>
+          <strong>{formatKes(analytics?.totalDisbursed || 0)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Outstanding Balance</span>
+          <strong>{formatKes(analytics?.outstandingBalance || 0)}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Pending Repayments</span>
+          <strong>{analytics?.pendingRepayments || 0}</strong>
+        </div>
+      </div>
+
+      <div className="admin-tab-row">
+        <button className={`auth-submit-btn ${activeTab === 'overview' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({users.length})</button>
         <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({loans.length})</button>
       </div>
+
+      {activeTab === 'overview' && (
+        <div className="admin-panel-block">
+          <h3>Pending Loan Requests</h3>
+          {pendingLoanRequests.length === 0 ? (
+            <p className="loan-status-empty-text">No pending loan requests.</p>
+          ) : (
+            <div className="responsive-table-shell">
+              <table className="data-table">
+                <thead><tr>
+                  <th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th>
+                </tr></thead>
+                <tbody>{pendingLoanRequests.map((loan) => (
+                  <tr key={loan.id}>
+                    <td>{loan.first_name} {loan.last_name}</td>
+                    <td>{loan.loan_type}</td>
+                    <td>{formatKes(loan.principal_amount || loan.amount)}</td>
+                    <td>{formatKes(loan.repayment_amount || loan.amount)}</td>
+                    <td>{formatLoanDate(loan.due_date)}</td>
+                    <td>{loan.status}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'users' && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
-            <thead><tr style={{ background: '#1a3a5c' }}>
-              <th style={th}>ID</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>Joined</th>
+        <div className="responsive-table-shell">
+          <table className="data-table">
+            <thead><tr>
+              <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th>
             </tr></thead>
             <tbody>{users.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid #1e3a55' }}>
-                <td style={td}>{u.id}</td>
-                <td style={td}>{u.first_name} {u.last_name}</td>
-                <td style={td}>{u.email}</td>
-                <td style={td}>{u.phone}</td>
-                <td style={td}>{new Date(u.createdAt).toLocaleDateString()}</td>
+              <tr key={u.id}>
+                <td>{u.id}</td>
+                <td>{u.first_name} {u.last_name}</td>
+                <td>{u.email}</td>
+                <td>{u.phone}</td>
+                <td>{formatLoanDate(u.createdAt)}</td>
               </tr>
             ))}</tbody>
           </table>
         </div>
       )}
+
       {activeTab === 'loans' && (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', fontSize: '13px' }}>
-            <thead><tr style={{ background: '#1a3a5c' }}>
-              <th style={th}>ID</th><th style={th}>User</th><th style={th}>Email</th><th style={th}>Type</th><th style={th}>Amount</th><th style={th}>Status</th><th style={th}>Date</th>
+        <div className="responsive-table-shell">
+          <table className="data-table">
+            <thead><tr>
+              <th>ID</th><th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th>
             </tr></thead>
             <tbody>{loans.map(l => (
-              <tr key={l.id} style={{ borderBottom: '1px solid #1e3a55' }}>
-                <td style={td}>{l.id}</td>
-                <td style={td}>{l.first_name} {l.last_name}</td>
-                <td style={td}>{l.email}</td>
-                <td style={td}>{l.loan_type}</td>
-                <td style={td}>KES {Number(l.amount).toLocaleString()}</td>
-                <td style={td}>{l.status}</td>
-                <td style={td}>{new Date(l.date_applied).toLocaleDateString()}</td>
+              <tr key={l.id}>
+                <td>{l.id}</td>
+                <td>{l.first_name} {l.last_name}</td>
+                <td>{l.transaction_type || l.loan_type}</td>
+                <td>{formatKes(Math.abs(Number(l.principal_amount || l.amount)))}</td>
+                <td>{formatKes(Math.abs(Number(l.repayment_amount || l.amount)))}</td>
+                <td>{l.receipt_number || l.account_number || '-'}</td>
+                <td>{l.status}</td>
+                <td>{formatLoanDate(l.completed_at || l.date_applied)}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -766,6 +947,10 @@ export default function App() {
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [appliedAmount, setAppliedAmount] = useState('');
   const [customAmount, setCustomAmount] = useState('');
+  const [repaymentAmount, setRepaymentAmount] = useState('');
+  const [loanDurationMonths, setLoanDurationMonths] = useState(1);
+  const [loanRequestLoading, setLoanRequestLoading] = useState(false);
+  const [signupLoading, setSignupLoading] = useState(false);
   const [paymentMode, setPaymentMode] = useState('Mobile'); 
   const [disbursementAccount, setDisbursementAccount] = useState('');
   const [loanBalance, setLoanBalance] = useState(0);
@@ -797,6 +982,18 @@ export default function App() {
     { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '10% p.a.', amounts: [50000, 100000, 150000] },
     { id: 3, name: 'Emergency Loan', desc: 'Instant short-term cash Loans for immediate bill settlement', rate: '4.2% p.a.', amounts: [2500, 5000, 10000] }
   ];
+
+  const loanAmountBounds = getLoanAmountBounds(selectedLoan);
+  const selectedLoanAmountValue = selectedLoan
+    ? (appliedAmount === 'custom'
+      ? parseFloat(customAmount)
+      : parseFloat(appliedAmount || selectedLoan.amounts?.[0] || loanAmountBounds.min))
+    : 0;
+  const loanQuote = getLoanQuote(selectedLoanAmountValue, selectedLoan?.rate, loanDurationMonths);
+  const partialPaymentValue = parseFloat(repaymentAmount);
+  const currentLoanBalance = Number(loanBalance) || 0;
+  const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
+  const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
 
   const triggerAlert = (message, type) => {
     if (notificationTimerRef.current) {
@@ -837,7 +1034,8 @@ export default function App() {
 
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
-    const paymentAmount = variant === 'partial' ? parseFloat(customAmount) : parseFloat(loanBalance);
+    if (paymentLoading) return;
+    const paymentAmount = variant === 'partial' ? parseFloat(repaymentAmount) : parseFloat(loanBalance);
 
     if (!mpesaPhone || mpesaPhone.trim() === '') {
       triggerAlert('Please enter a valid M-Pesa phone number.', 'error-red');
@@ -845,7 +1043,7 @@ export default function App() {
     }
 
     if (loanBalance <= 0) {
-      triggerAlert('You do not have anoutstanding balance to repay.', 'error-red');
+      triggerAlert('You do not have an outstanding balance to repay.', 'error-red');
       return;
     }
     if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
@@ -881,11 +1079,12 @@ export default function App() {
       const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
         phoneNumber: formattedPhone, 
         amount: paymentAmount,
+        userId: userProfile.id,
         accountReference: `LoanRepayment-${userProfile.loanId}`,
         transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
       });
       if (response.status === 200) {
-        setPaymentStatus('Check your phone and enter your M-Pesa PIN.');
+        setPaymentStatus(response.data?.message || 'Check your phone and enter your M-Pesa PIN.');
         setPaymentError(false);
         triggerAlert('STK prompt sent to your phone!', 'success');
 
@@ -906,6 +1105,7 @@ export default function App() {
                 refreshLatestLoanStatus(userProfile.id);
               }
               setPaymentStatus('Payment received! Check Your Loan balance.');
+              setRepaymentAmount('');
               clearInterval(poll);
             }
           } catch {}
@@ -916,8 +1116,8 @@ export default function App() {
       console.error("M-Pesa error trace:", error);
       setPaymentError(true);
       const serverErrorMessage = error.response?.data?.error || 'Failed to initiate STK push. Try again.';
-      setPaymentStatus(`❌ ${serverErrorMessage}`);
-      triggerAlert('STK Push submission collapsed.', 'logout');
+      setPaymentStatus(` ${serverErrorMessage}`);
+      triggerAlert('STK Push submission Failed.', 'logout');
     } finally {
       setPaymentLoading(false);
     }
@@ -990,19 +1190,24 @@ export default function App() {
     setIsMenuOpen(false);
     setPaymentStatus('');
     setPaymentError(false);
+    setRepaymentAmount('');
+    setLoanRequestLoading(false);
     triggerAlert('Logged out successfully.', 'logout');
   };
 
   const handleSignUpSubmit = async () => {
+    if (signupLoading) return;
     if (password.length < 8) {
-    triggerAlert('Password must be at least 8 characters long!', 'logout');
-    return;
-  }
+      triggerAlert('Password must be at least 8 characters long!', 'logout');
+      return;
+    }
 
-  if (password !== confirmPassword) {
-    triggerAlert('Passwords do not match!', 'logout');
-    return;
-  }
+    if (password !== confirmPassword) {
+      triggerAlert('Passwords do not match!', 'logout');
+      return;
+    }
+
+    setSignupLoading(true);
     try {
       const cleanEmail = normalizeEmail(email);
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
@@ -1025,13 +1230,15 @@ export default function App() {
           phone: phone,
           loanId: data.loanId
         });
-        triggerAlert('Account synchronized to MySQL!', 'success');
+        triggerAlert('Account synchronized!', 'success');
         setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setPassword(''); setConfirmPassword('');
       } else {
         triggerAlert(data.message || 'Signup validation error', 'logout');
       }
     } catch (error) {
       triggerAlert('Cannot bridge connection to backend.', 'logout');
+    } finally {
+      setSignupLoading(false);
     }
   };
 
@@ -1102,9 +1309,11 @@ export default function App() {
   };
 
   const handleApplyClick = (loan) => {
+    const defaultAmount = loan.amounts?.[0] || '';
     setSelectedLoan(loan);
-    setAppliedAmount('');
-    setCustomAmount('');
+    setAppliedAmount(defaultAmount);
+    setCustomAmount(String(defaultAmount));
+    setLoanDurationMonths(1);
     setDisbursementAccount('');
     setCurrentView('apply_loan_form');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
@@ -1119,13 +1328,21 @@ export default function App() {
 
   const handleLoanRequestSubmit = async (e) => {
     e.preventDefault();
-    const finalAmount = appliedAmount === 'custom' ? customAmount : appliedAmount;
+    if (loanRequestLoading) return;
+
+    const finalAmount = loanQuote.principal;
 
     if (!finalAmount || finalAmount <= 0) {
       triggerAlert('Please select or enter a valid loan amount.', 'logout');
       return;
     }
 
+    if (!disbursementAccount || disbursementAccount.trim() === '') {
+      triggerAlert('Please enter the account that should receive funds.', 'logout');
+      return;
+    }
+
+    setLoanRequestLoading(true);
     try {
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
       const response = await fetch(`${BASE_URL}/api/loans`, {
@@ -1134,7 +1351,11 @@ export default function App() {
         body: JSON.stringify({
           userId: userProfile.id,
           loanType: selectedLoan.name,
-          amount: parseFloat(finalAmount),
+          amount: finalAmount,
+          durationMonths: loanQuote.months,
+          interestRate: loanQuote.annualRate,
+          repaymentAmount: loanQuote.repaymentTotal,
+          dueDate: loanQuote.dueDateIso,
           paymentMode: paymentMode,
           accountNumber: disbursementAccount
         })
@@ -1146,7 +1367,12 @@ export default function App() {
         const requestedLoan = data.loan || data.latestLoan || {
           id: data.loanId || data.id || `local-${Date.now()}`,
           loan_type: selectedLoan.name,
-          amount: parseFloat(finalAmount),
+          amount: data.repaymentAmount || loanQuote.repaymentTotal,
+          principal_amount: data.principalAmount || finalAmount,
+          repayment_amount: data.repaymentAmount || loanQuote.repaymentTotal,
+          duration_months: loanQuote.months,
+          interest_rate: loanQuote.annualRate,
+          due_date: data.dueDate || loanQuote.dueDateIso,
           status: data.status || data.loanStatus || 'Disbursed',
           date_applied: data.date_applied || data.dateApplied || new Date().toISOString(),
           payment_mode: paymentMode,
@@ -1163,6 +1389,8 @@ export default function App() {
       }
     } catch (error) {
       triggerAlert('Cannot bridge connection to backend.', 'logout');
+    } finally {
+      setLoanRequestLoading(false);
     }
   };
 
@@ -1203,6 +1431,7 @@ export default function App() {
               password={password} setPassword={setPassword} confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword}
               handleLoginSubmit={handleLoginSubmit} handleSignUpSubmit={handleSignUpSubmit}
               handleForgotPasswordSubmit={handleForgotPasswordSubmit}
+              signupLoading={signupLoading}
             />
           </div>
         ) : (
@@ -1281,7 +1510,7 @@ export default function App() {
                         style={{ width: '100%', padding: '14px', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', margin: 0 }} 
                         disabled={paymentLoading}
                       >
-                        {paymentLoading ? 'PROCESSING PUSH...' : 'PAY VIA M-PESA'}
+                        {paymentLoading ? <LoadingSpinner label="Processing push..." /> : 'PAY VIA M-PESA'}
                       </button>
                     </form>
 
@@ -1337,49 +1566,99 @@ export default function App() {
               )}
 
               {currentView === 'apply_loan_form' && selectedLoan && (
-                <div className="view-fade-in action-panel-card" style={{ maxWidth: '600px', margin: '0 auto' }}>
+                <div className="view-fade-in action-panel-card loan-application-panel" style={{ maxWidth: '720px', margin: '0 auto' }}>
                   <h2>Apply for {selectedLoan.name}</h2>
                   <p className="rate" style={{color: '#f3ebec',}}>Interest Rate: <strong>{selectedLoan.rate}</strong></p>
                   
                   <form onSubmit={handleLoanRequestSubmit} className="auth-form">
-                    <div className="input-group">
-                      <label>Select Loan Amount (KES)</label>
-                      <div className="loan-amount-button-group">
-                        {selectedLoan.amounts.map((amt) => (
-                          <button
-                            type="button" key={amt} className="amount-selection-btn"
-                            onClick={() => { setAppliedAmount(amt); setCustomAmount(''); }}
-                            style={{
-                              backgroundColor: appliedAmount === amt ? '#d47a14' : '#0870a3',
-                              color: appliedAmount === amt ? '#fff' : '#333'
-                            }}
-                          >
-                            {amt.toLocaleString()}
-                          </button>
-                        ))}
-                        <button
-                          type="button" className="amount-selection-btn" onClick={() => setAppliedAmount('custom')}
-                          style={{
-                            backgroundColor: appliedAmount === 'custom' ? '#dc6606' : '#0e7ab0',
-                            color: appliedAmount === 'custom' ? '#ffffff' : '#5d3904', fontWeight: appliedAmount === 'custom' ? '750' : '800'
-                          }}
-                        >Custom</button>
+                    <div className="loan-calculator-panel">
+                      <div className="input-group">
+                        <label>Select Loan Amount (KES)</label>
+                        <div className="loan-amount-button-group">
+                          {selectedLoan.amounts.map((amt) => (
+                            <button
+                              type="button" key={amt} className="amount-selection-btn"
+                              onClick={() => { setAppliedAmount(amt); setCustomAmount(String(amt)); }}
+                              style={{
+                                backgroundColor: Number(selectedLoanAmountValue) === amt ? '#d47a14' : '#0870a3',
+                                color: Number(selectedLoanAmountValue) === amt ? '#fff' : '#f3f7fb'
+                              }}
+                            >
+                              {amt.toLocaleString()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="calculator-control-grid">
+                        <div className="input-group">
+                          <label>Amount Slider</label>
+                          <input
+                            type="range"
+                            min={loanAmountBounds.min}
+                            max={loanAmountBounds.max}
+                            step={loanAmountBounds.step}
+                            value={loanQuote.principal || loanAmountBounds.min}
+                            onChange={(e) => { setAppliedAmount('custom'); setCustomAmount(e.target.value); }}
+                            className="loan-range-input"
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Custom Amount</label>
+                          <input
+                            type="number"
+                            value={customAmount}
+                            onChange={(e) => { setAppliedAmount('custom'); setCustomAmount(e.target.value); }}
+                            min={loanAmountBounds.min}
+                            max={loanAmountBounds.max}
+                            step={loanAmountBounds.step}
+                            placeholder="Enter amount"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="calculator-control-grid">
+                        <div className="input-group">
+                          <label>Duration ({loanQuote.months} month{loanQuote.months === 1 ? '' : 's'})</label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="6"
+                            step="1"
+                            value={loanDurationMonths}
+                            onChange={(e) => setLoanDurationMonths(e.target.value)}
+                            className="loan-range-input"
+                          />
+                        </div>
+                        <div className="duration-chip-row">
+                          {[1, 3, 6].map((months) => (
+                            <button
+                              type="button"
+                              key={months}
+                              className={`duration-chip ${Number(loanDurationMonths) === months ? 'active' : ''}`}
+                              onClick={() => setLoanDurationMonths(months)}
+                            >
+                              {months}m
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="loan-quote-grid">
+                        <div><span>Principal</span><strong>{formatKes(loanQuote.principal)}</strong></div>
+                        <div><span>Interest</span><strong>{formatKes(loanQuote.interest)}</strong></div>
+                        <div><span>Total Repayment</span><strong>{formatKes(loanQuote.repaymentTotal)}</strong></div>
+                        <div><span>Due Date</span><strong>{loanQuote.dueDateLabel}</strong></div>
                       </div>
                     </div>
-
-                    {appliedAmount === 'custom' && (
-                      <div className="input-group view-fade-in">
-                        <label>Enter Preferable Amount (KES)</label>
-                        <input type="number" value={customAmount} onChange={(e) => setCustomAmount(e.target.value)} placeholder="Enter custom amount" required />
-                      </div>
-                    )}
 
                     <div className="input-group">
                       <label>Mode of Payment</label>
                       <select 
                         value={paymentMode} 
                         onChange={(e) => { setPaymentMode(e.target.value); setDisbursementAccount(''); }}
-                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#094a87' }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#094a87', color: '#fff' }}
                       >
                         <option value="Mobile">Mobile Money</option>
                         <option value="Bank">Bank</option>
@@ -1401,8 +1680,10 @@ export default function App() {
                     </div>
 
                     <div className="form-action-buttons">
-                      <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setCurrentView('loans')}>Cancel</button>
-                      <button type="submit" className="auth-submit-btn">Request Loan</button>
+                      <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setCurrentView('loans')} disabled={loanRequestLoading}>Cancel</button>
+                      <button type="submit" className="auth-submit-btn" disabled={loanRequestLoading}>
+                        {loanRequestLoading ? <LoadingSpinner label="Requesting..." /> : 'Request Loan'}
+                      </button>
                     </div>
                   </form>
                 </div>
@@ -1423,23 +1704,38 @@ export default function App() {
                   <h2>Partial loan Repayment Option</h2>
                   <p className="repay-text" style={{color: 'whitesmoke'}}>Repay your Loan with any amount available, we offer flexible Loan Repayment!</p>
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
-                    <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></p>
+                    <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>{formatKes(loanBalance)}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
                       <label>Enter Amount To Pay (KES)</label>
                       <input 
                         type="number" 
                         placeholder="Enter Amount" 
-                        value={customAmount} 
-                        onChange={(e) => setCustomAmount(e.target.value)} 
+                        value={repaymentAmount} 
+                        onChange={(e) => setRepaymentAmount(e.target.value)} 
+                        min="1"
+                        max={currentLoanBalance}
                       />
                     </div>
+                    <div className="repayment-impact-panel">
+                      <div>
+                        <span>Payment Amount</span>
+                        <strong>{formatKes(Number.isFinite(partialPaymentValue) ? partialPaymentValue : 0)}</strong>
+                      </div>
+                      <div>
+                        <span>Remaining Balance</span>
+                        <strong>{formatKes(remainingAfterPartial)}</strong>
+                      </div>
+                    </div>
+                    {!isPartialPaymentValid && repaymentAmount && (
+                      <div className="loan-status-error">Enter an amount above KES 0 and not more than your outstanding balance.</div>
+                    )}
                     <button 
                       className="pay-now-action-btn" 
                       style={{ width: '100%', backgroundColor: '#eba22d' }} 
                       onClick={(e) => handleMpesaPaymentSubmit(e, 'partial')}
-                      disabled={paymentLoading}
+                      disabled={paymentLoading || !isPartialPaymentValid}
                     >
-                      {paymentLoading ? 'PROCESSING...' : 'PAY'}
+                      {paymentLoading ? <LoadingSpinner label="Processing..." /> : 'PAY'}
                     </button>
                   </div>
                 </div>
@@ -1557,3 +1853,5 @@ export default function App() {
     </div>
   );
 }
+
+
