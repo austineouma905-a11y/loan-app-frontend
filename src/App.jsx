@@ -5,6 +5,8 @@ import './App.css';
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
 const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
 const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
+const LOCAL_USERS_KEY = 'loan-app-local-users';
+const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
 
 const getPasswordStrength = (value = '') => {
   let score = 0;
@@ -92,6 +94,7 @@ function AuthView({
   firstName, setFirstName, lastName, setLastName,
   password, setPassword, confirmPassword, setConfirmPassword, 
   handleLoginSubmit, handleSignUpSubmit, handleForgotPasswordSubmit,
+  handleVerifyOtpSubmit, handleResetPasswordSubmit,
   signupLoading = false
 }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -152,13 +155,10 @@ function AuthView({
     setIsSubmitting(true);
     try {
       const cleanEmail = normalizeEmail(email);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/verify-otp`, { email: cleanEmail, otp: fullOtp });
-      if (response.status === 200) {
+      const success = await handleVerifyOtpSubmit(cleanEmail, fullOtp);
+      if (success) {
         setForgotStep(3);
       }
-    } catch (error) {
-      alert(error.response?.data?.message || 'Invalid or expired OTP code.');
     } finally {
       setIsSubmitting(false);
     }
@@ -179,18 +179,14 @@ function AuthView({
     setIsSubmitting(true);
     try {
       const cleanEmail = normalizeEmail(email);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email: cleanEmail, newPassword: password });
-      if (response.status === 200) {
-        alert("Password updated successfully!");
+      const success = await handleResetPasswordSubmit(cleanEmail, password, otpArray.join(''));
+      if (success) {
         setForgotStep(1);
         setOtpArray(['', '', '', '']);
         setPassword('');
         setConfirmPassword('');
         setAuthMode('login');
       }
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to sync new credentials.');
     } finally {
       setIsSubmitting(false);
     }
@@ -629,11 +625,13 @@ const getUserDisplayName = (user) => {
 
 const isUserPendingVerification = (user) => {
   if (!user) return false;
-  if (user.pendingVerification || user.source === 'local-signup') return true;
+  if (user.pendingVerification === true) return true;
 
   const explicitVerification = getLoanValue(user, USER_VERIFICATION_KEYS, null);
   if (isNegativeValue(explicitVerification)) return true;
   if (isAffirmativeValue(explicitVerification)) return false;
+  if (user.pendingVerification === false) return false;
+  if (user.source === 'local-signup') return true;
 
   return statusIncludesAny(getUserStatusText(user), ['pending', 'review', 'processing', 'progress', 'unverified', 'waiting', 'new']);
 };
@@ -677,26 +675,73 @@ const getTableStatusClass = (status) => {
   return 'status-pending';
 };
 
-const readStoredSignupNotifications = () => {
+const readStoredArray = (key) => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return [];
-    const stored = JSON.parse(window.localStorage.getItem(SIGNUP_NOTIFICATIONS_KEY) || '[]');
+    const stored = JSON.parse(window.localStorage.getItem(key) || '[]');
     return Array.isArray(stored) ? stored : [];
   } catch {
     return [];
   }
 };
 
-const writeStoredSignupNotifications = (notifications) => {
+const writeStoredArray = (key, records) => {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
-    window.localStorage.setItem(SIGNUP_NOTIFICATIONS_KEY, JSON.stringify(notifications));
+    window.localStorage.setItem(key, JSON.stringify(records));
   } catch {}
 };
 
-const upsertSignupNotification = (currentNotifications, notification) => {
-  const withoutDuplicate = currentNotifications.filter((item) => !recordsReferToSameUser(item, notification));
-  return [notification, ...withoutDuplicate].slice(0, 25);
+const readStoredSignupNotifications = () => readStoredArray(SIGNUP_NOTIFICATIONS_KEY);
+
+const writeStoredSignupNotifications = (notifications) => {
+  writeStoredArray(SIGNUP_NOTIFICATIONS_KEY, notifications);
+};
+
+const readStoredLocalUsers = () => readStoredArray(LOCAL_USERS_KEY);
+
+const writeStoredLocalUsers = (users) => {
+  writeStoredArray(LOCAL_USERS_KEY, users);
+};
+
+const upsertLocalUser = (currentUsers, user) => {
+  const withoutDuplicate = currentUsers.filter((item) => !recordsReferToSameUser(item, user));
+  return [user, ...withoutDuplicate];
+};
+
+const readStoredResetCodes = () => readStoredArray(LOCAL_RESET_CODES_KEY);
+
+const writeStoredResetCodes = (codes) => {
+  writeStoredArray(LOCAL_RESET_CODES_KEY, codes);
+};
+
+const createLocalUserId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const createLocalLoanId = () => `LNX-${String(Date.now()).slice(-6)}`;
+
+const createLocalResetCode = () => String(Math.floor(1000 + Math.random() * 9000));
+
+const getValidLocalResetCode = (email, otp) => {
+  const cleanEmail = normalizeEmail(email);
+  const code = String(otp || '');
+  return readStoredResetCodes().find((record) => (
+    normalizeEmail(record.email) === cleanEmail &&
+    String(record.code) === code &&
+    Number(record.expiresAt || 0) > Date.now()
+  ));
+};
+
+const clearLocalResetCode = (email) => {
+  const cleanEmail = normalizeEmail(email);
+  writeStoredResetCodes(readStoredResetCodes().filter((record) => normalizeEmail(record.email) !== cleanEmail));
+};
+
+const parseResponseBody = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
 };
 
 const formatKes = (amount) => {
@@ -928,6 +973,7 @@ function AdminView({
   onUserVerified = () => {},
   onLoanReviewed = () => {},
   onAdminCountsChange = () => {},
+  localUsers = [],
   initialTab = 'overview'
 }) {
   const [secret, setSecret] = useState('');
@@ -947,7 +993,11 @@ function AdminView({
     setActiveTab(initialTab || 'overview');
   }, [initialTab]);
 
-  const pendingVerificationUsers = users.filter(isUserPendingVerification);
+  const allUsers = [
+    ...users,
+    ...localUsers.filter((localUser) => !users.some((user) => recordsReferToSameUser(user, localUser)))
+  ];
+  const pendingVerificationUsers = allUsers.filter(isUserPendingVerification);
   const analyticsPendingLoans = Array.isArray(analytics?.pendingLoanRequests) ? analytics.pendingLoanRequests : [];
   const pendingLoansFromTable = loans.filter(isPendingLoanStatus);
   const pendingLoanRequests = [
@@ -1040,7 +1090,16 @@ function AdminView({
     const actionKey = `user-${userId || userEmail}`;
 
     if (!userId || String(userId).startsWith('local-')) {
-      setAdminFeedback({ message: 'User must exist on the backend before verification.', type: 'error' });
+      const verifiedUser = {
+        ...user,
+        status: 'Verified',
+        is_verified: true,
+        verified: true,
+        pendingVerification: false
+      };
+
+      onUserVerified(verifiedUser);
+      setAdminFeedback({ message: 'Local user verified successfully.', type: 'success' });
       return;
     }
 
@@ -1108,7 +1167,7 @@ function AdminView({
           String(getLoanValue(pendingLoan, ['id', 'loanId', 'loan_id'], '')) !== String(loanId)
         ))
       } : currentAnalytics);
-      onLoanReviewed(updatedLoan);
+      onLoanReviewed(updatedLoan, payload);
       setAdminFeedback({ message: payload.message || `Loan ${fallbackStatus.toLowerCase()} successfully.`, type: 'success' });
       await loadAdminData().catch(() => null);
     } catch (mutationError) {
@@ -1162,7 +1221,7 @@ function AdminView({
       <div className="admin-overview-grid">
         <div className="admin-stat-card">
           <span>Total Active Users</span>
-          <strong>{analytics?.totalActiveUsers ?? users.length}</strong>
+          <strong>{analytics?.totalActiveUsers ?? allUsers.length}</strong>
         </div>
         <div className="admin-stat-card">
           <span>Pending Signups</span>
@@ -1194,7 +1253,7 @@ function AdminView({
 
       <div className="admin-tab-row">
         <button className={`auth-submit-btn ${activeTab === 'overview' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('overview')}>Overview</button>
-        <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({users.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({allUsers.length})</button>
         <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({loans.length})</button>
       </div>
 
@@ -1294,9 +1353,9 @@ function AdminView({
             <thead><tr>
               <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
             </tr></thead>
-            <tbody>{users.map(u => (
-              <tr key={u.id}>
-                <td>{u.id}</td>
+            <tbody>{allUsers.map(u => (
+              <tr key={getUserRecordId(u) || getUserRecordEmail(u)}>
+                <td>{getUserRecordId(u) || '-'}</td>
                 <td>{getUserDisplayName(u)}</td>
                 <td>{u.email}</td>
                 <td>{u.phone}</td>
@@ -1379,11 +1438,13 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
   const [signupNotifications, setSignupNotifications] = useState(() => readStoredSignupNotifications());
+  const [localUsers, setLocalUsers] = useState(() => readStoredLocalUsers());
   const [adminPendingCounts, setAdminPendingCounts] = useState({ users: 0, loans: 0 });
   const [adminInitialTab, setAdminInitialTab] = useState('overview');
   
   // Settings sub-view states and toggles
   const [settingsMode, setSettingsMode] = useState('home'); // home, password, profile
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -1391,6 +1452,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [repayDropdown, setRepayDropdown] = useState(false);
@@ -1459,6 +1521,48 @@ export default function App() {
     }, 4500);
   };
 
+  const saveLocalUsers = useCallback((updater) => {
+    setLocalUsers((currentUsers) => {
+      const nextUsers = typeof updater === 'function' ? updater(currentUsers) : updater;
+      writeStoredLocalUsers(nextUsers);
+      return nextUsers;
+    });
+  }, []);
+
+  const findLocalUserByEmail = useCallback((emailValue) => {
+    const cleanEmail = normalizeEmail(emailValue);
+    return localUsers.find((user) => getUserRecordEmail(user) === cleanEmail);
+  }, [localUsers]);
+
+  const saveLocalUser = useCallback((user) => {
+    saveLocalUsers((currentUsers) => upsertLocalUser(currentUsers, user));
+  }, [saveLocalUsers]);
+
+  const updateLocalUserRecord = useCallback((emailValue, updater) => {
+    const cleanEmail = normalizeEmail(emailValue);
+    let updatedUser = null;
+
+    saveLocalUsers((currentUsers) => currentUsers.map((user) => {
+      if (getUserRecordEmail(user) !== cleanEmail) return user;
+      updatedUser = typeof updater === 'function' ? updater(user) : { ...user, ...updater };
+      return updatedUser;
+    }));
+
+    return updatedUser;
+  }, [saveLocalUsers]);
+
+  const issueLocalResetCode = useCallback((emailValue) => {
+    const cleanEmail = normalizeEmail(emailValue);
+    const code = createLocalResetCode();
+    const nextCodes = [
+      { email: cleanEmail, code, expiresAt: Date.now() + (10 * 60 * 1000) },
+      ...readStoredResetCodes().filter((record) => normalizeEmail(record.email) !== cleanEmail)
+    ];
+
+    writeStoredResetCodes(nextCodes);
+    return code;
+  }, []);
+
   const handleAdminCountsChange = useCallback((counts) => {
     setAdminPendingCounts((currentCounts) => {
       const nextCounts = {
@@ -1480,18 +1584,31 @@ export default function App() {
       writeStoredSignupNotifications(nextNotifications);
       return nextNotifications;
     });
+    saveLocalUsers((currentUsers) => currentUsers.map((user) => (
+      recordsReferToSameUser(user, verifiedUser)
+        ? { ...user, ...verifiedUser, status: 'Verified', verified: true, is_verified: true, pendingVerification: false }
+        : user
+    )));
     setAdminPendingCounts((currentCounts) => ({
       ...currentCounts,
       users: Math.max((currentCounts.users || 0) - 1, 0)
     }));
-  }, []);
+  }, [saveLocalUsers]);
 
-  const handleLoanReviewed = useCallback(() => {
+  const handleLoanReviewed = useCallback((updatedLoan, payload = {}) => {
     setAdminPendingCounts((currentCounts) => ({
       ...currentCounts,
       loans: Math.max((currentCounts.loans || 0) - 1, 0)
     }));
-  }, []);
+
+    const reviewedUserId = getLoanValue(updatedLoan, ['user_id', 'userId', 'user_id'], '');
+    if (String(reviewedUserId) !== String(userProfile.id || '')) return;
+
+    if (Object.prototype.hasOwnProperty.call(payload, 'loanBalance')) {
+      setLoanBalance(Number(payload.loanBalance || 0));
+    }
+    setLatestLoan((currentLoan) => currentLoan ? { ...currentLoan, ...updatedLoan } : updatedLoan);
+  }, [userProfile.id]);
 
   const handleOpenAdmin = useCallback((tab = 'overview') => {
     setAdminInitialTab(tab);
@@ -1499,30 +1616,65 @@ export default function App() {
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   }, []);
 
-  const refreshLatestLoanStatus = async (userId = userProfile.id) => {
+  const refreshLatestLoanStatus = useCallback(async (userId = userProfile.id) => {
     if (!userId) return;
 
     setLoanStatusLoading(true);
     setLoanStatusError('');
 
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await fetch(`${BASE_URL}/api/transactions/${userId}`);
-      const data = await response.json();
+      const [transactionsResponse, balanceResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/transactions/${userId}`),
+        fetch(`${API_BASE_URL}/api/balance/${userId}`)
+      ]);
+      const [transactionsData, balanceData] = await Promise.all([
+        parseResponseBody(transactionsResponse),
+        parseResponseBody(balanceResponse)
+      ]);
+      let records = [];
 
-      if (response.ok) {
-        const records = data.transactions || data.loans || data.loanRecords || [];
+      if (transactionsResponse.ok) {
+        records = transactionsData.transactions || transactionsData.loans || transactionsData.loanRecords || [];
         const latestRecord = getLatestLoanRecord(records);
         setLatestLoan((currentLoan) => latestRecord || currentLoan);
       } else {
-        setLoanStatusError(data.message || 'Unable to load loan status right now.');
+        setLoanStatusError(transactionsData.message || 'Unable to load loan status right now.');
+      }
+
+      if (balanceResponse.ok) {
+        setLoanBalance(Number(balanceData.loanBalance || 0));
+      } else if (transactionsResponse.ok) {
+        const calculatedBalance = records.reduce((total, record) => {
+          const status = String(record.status || record.display_status || '').toLowerCase();
+          const isPosted = ['disbursed', 'completed', 'paid', 'approved', 'active'].some((statusKey) => status.includes(statusKey));
+          return isPosted ? total + (Number(record.amount) || 0) : total;
+        }, 0);
+        setLoanBalance(calculatedBalance);
       }
     } catch (error) {
       setLoanStatusError('Cannot connect to loan status records.');
     } finally {
       setLoanStatusLoading(false);
     }
-  };
+  }, [userProfile.id]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !userProfile.id) return;
+    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(currentView)) return;
+
+    refreshLatestLoanStatus(userProfile.id);
+  }, [isLoggedIn, userProfile.id, currentView, refreshLatestLoanStatus]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !userProfile.id) return;
+    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(currentView)) return;
+
+    const refreshTimer = setInterval(() => {
+      refreshLatestLoanStatus(userProfile.id);
+    }, 10000);
+
+    return () => clearInterval(refreshTimer);
+  }, [isLoggedIn, userProfile.id, currentView, refreshLatestLoanStatus]);
 
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
@@ -1617,6 +1769,10 @@ export default function App() {
 
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
+    if (!currentPassword) {
+      triggerAlert("Please enter your current password.", "error-red");
+      return;
+    }
     if (password.length < 8) {
       triggerAlert("Password must be at least 8 characters long.", "error-red");
       return;
@@ -1627,10 +1783,15 @@ export default function App() {
     }
     try {
       const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/reset-password`, { email: userProfile.email, newPassword: password });
+      const response = await axios.post(`${BASE_URL}/api/change-password`, {
+        userId: userProfile.id,
+        currentPassword,
+        newPassword: password
+      });
       if (response.status === 200) {
         triggerAlert("Password updated successfully!", "success");
         setSettingsMode('home');
+        setCurrentPassword('');
         setPassword(''); 
         setConfirmPassword('');
       }
@@ -1682,9 +1843,114 @@ export default function App() {
     setIsMenuOpen(false);
     setPaymentStatus('');
     setPaymentError(false);
+    setCurrentPassword('');
+    setPassword('');
+    setConfirmPassword('');
     setRepaymentAmount('');
     setLoanRequestLoading(false);
     triggerAlert('Logged out successfully.', 'logout');
+  };
+
+  const resetSignupForm = () => {
+    setFirstName('');
+    setLastName('');
+    setEmail('');
+    setPhone('');
+    setPassword('');
+    setConfirmPassword('');
+  };
+
+  const createLocalSignupUser = (cleanEmail) => {
+    const localId = createLocalUserId();
+    const name = `${firstName.trim()} ${lastName.trim()}`.trim();
+    const localUser = {
+      id: localId,
+      userId: localId,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      name,
+      email: cleanEmail,
+      phone: phone.trim(),
+      password,
+      loanId: createLocalLoanId(),
+      status: 'Verified',
+      is_verified: true,
+      verified: true,
+      pendingVerification: false,
+      source: 'local-signup',
+      localOnly: true,
+      createdAt: new Date().toISOString()
+    };
+
+    saveLocalUser(localUser);
+    return localUser;
+  };
+
+  const completeLogin = (data, { cleanEmail, isLocal = false } = {}) => {
+    const profileId = data.userId || data.id || data.user_id;
+    const loginLoan = data.latestLoan || data.loan || (data.loanStatus ? {
+      status: data.loanStatus,
+      amount: data.loanAmount || data.loanBalance || 0,
+      loan_type: data.loanType || 'Loan Account',
+      date_applied: data.dateApplied || data.loanDate,
+      payment_mode: data.paymentMode,
+      account_number: data.accountNumber
+    } : null);
+
+    setIsLoggedIn(true);
+    setCurrentView('dashboard_home');
+    setLoanBalance(data.loanBalance || 0);
+    setLatestLoan(loginLoan);
+    setLoanStatusError('');
+    setUserProfile({
+      id: profileId,
+      name: data.name || getUserDisplayName(data),
+      email: normalizeEmail(data.email || cleanEmail),
+      phone: data.phone || '',
+      loanId: data.loanId || data.loan_id || createLocalLoanId()
+    });
+
+    if (!isLocal && profileId) {
+      refreshLatestLoanStatus(profileId);
+    }
+
+    if (cleanEmail) {
+      setSignupNotifications((currentNotifications) => {
+        const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
+        writeStoredSignupNotifications(nextNotifications);
+        return nextNotifications;
+      });
+    }
+
+    triggerAlert('Successfully logged in!', 'success');
+    setEmail('');
+    setPassword('');
+  };
+
+  const tryLocalLogin = (cleanEmail) => {
+    const localUser = findLocalUserByEmail(cleanEmail);
+    if (!localUser) return false;
+
+    if (localUser.password !== password) {
+      triggerAlert('Invalid username or password!', 'error-red');
+      return true;
+    }
+
+    if (isUserPendingVerification(localUser)) {
+      const verifiedLocalUser = {
+        ...localUser,
+        status: 'Verified',
+        is_verified: true,
+        verified: true,
+        pendingVerification: false
+      };
+      saveLocalUser(verifiedLocalUser);
+      completeLogin(verifiedLocalUser, { cleanEmail, isLocal: true });
+      return true;
+    }
+
+    completeLogin(localUser, { cleanEmail, isLocal: true });
+    return true;
   };
 
   const handleSignUpSubmit = async () => {
@@ -1700,127 +1966,188 @@ export default function App() {
     }
 
     setSignupLoading(true);
+    const cleanEmail = normalizeEmail(email);
+    setEmail(cleanEmail);
+
+    if (findLocalUserByEmail(cleanEmail)) {
+      triggerAlert('An account with this email already exists. Please log in or reset your password.', 'error-red');
+      setSignupLoading(false);
+      return;
+    }
+
     try {
-      const cleanEmail = normalizeEmail(email);
       const response = await fetch(`${API_BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firstName,
           lastName,
+          name: `${firstName} ${lastName}`.trim(),
           email: cleanEmail,
           phone,
           password,
-          status: 'Pending Verification'
+          status: 'Verified'
         })
       });
-      const data = await response.json();
+      const data = await parseResponseBody(response);
       if (response.ok) {
-        const pendingSignup = {
-          id: data.userId,
-          userId: data.userId,
-          name: `${firstName} ${lastName}`.trim(),
-          email: cleanEmail,
-          phone: phone,
-          loanId: data.loanId,
-          status: data.status || data.accountStatus || 'Pending Verification',
-          createdAt: new Date().toISOString(),
-          pendingVerification: true,
-          source: 'local-signup'
-        };
-
         setSignupNotifications((currentNotifications) => {
-          const nextNotifications = upsertSignupNotification(currentNotifications, pendingSignup);
+          const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
           writeStoredSignupNotifications(nextNotifications);
           setAdminPendingCounts((currentCounts) => ({
             ...currentCounts,
-            users: Math.max((currentCounts.users || 0), nextNotifications.length)
+            users: nextNotifications.length
           }));
           return nextNotifications;
         });
         setAuthMode('login');
-        triggerAlert('Account created. Admin verification is required before login.', 'success');
-        setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setPassword(''); setConfirmPassword('');
+        triggerAlert(data.message || 'Account created successfully. You can log in now.', 'success');
+        resetSignupForm();
       } else {
+        if (response.status >= 500) {
+          createLocalSignupUser(cleanEmail);
+          setAuthMode('login');
+          resetSignupForm();
+          triggerAlert('Backend database is unavailable, so the account was saved locally. You can log in now.', 'success');
+          return;
+        }
+
         triggerAlert(data.message || 'Signup validation error', 'logout');
       }
     } catch (error) {
-      triggerAlert('Cannot bridge connection to backend.', 'logout');
+      createLocalSignupUser(cleanEmail);
+      setAuthMode('login');
+      resetSignupForm();
+      triggerAlert('Cannot reach backend, so the account was saved locally. You can log in now.', 'success');
     } finally {
       setSignupLoading(false);
     }
   };
 
   const handleLoginSubmit = async () => {
+    const cleanEmail = normalizeEmail(email);
+    setEmail(cleanEmail);
+
     try {
-      const cleanEmail = normalizeEmail(email);
       const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, password })
       });
-      const data = await response.json();
+      const data = await parseResponseBody(response);
       if (response.ok) {
-        if (isUserPendingVerification(data)) {
-          triggerAlert('Your account is waiting for admin verification.', 'info');
-          return;
-        }
-
-        const loginLoan = data.latestLoan || data.loan || (data.loanStatus ? {
-          status: data.loanStatus,
-          amount: data.loanAmount || data.loanBalance || 0,
-          loan_type: data.loanType || 'Loan Account',
-          date_applied: data.dateApplied || data.loanDate,
-          payment_mode: data.paymentMode,
-          account_number: data.accountNumber
-        } : null);
-
-        setIsLoggedIn(true);
-        setCurrentView('dashboard_home');
-        setLoanBalance(data.loanBalance || 0);
-        setLatestLoan(loginLoan);
-        setLoanStatusError('');
-        setUserProfile({
-          id: data.userId,
-          name: data.name,
-          email: data.email,
-          phone: data.phone,
-          loanId: data.loanId
-        });
-        refreshLatestLoanStatus(data.userId);
-        triggerAlert('Successfully logged in!', 'success');
-        setSignupNotifications((currentNotifications) => {
-          const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
-          writeStoredSignupNotifications(nextNotifications);
-          return nextNotifications;
-        });
-        setEmail(''); setPassword('');
+        completeLogin({
+          ...data,
+          status: data.status || 'Verified',
+          is_verified: true,
+          pendingVerification: false
+        }, { cleanEmail });
       } else {
+        if (tryLocalLogin(cleanEmail)) return;
         triggerAlert(data.message || 'Invalid username or password!', 'error-red');
       }
     } catch (error) {
+      if (tryLocalLogin(cleanEmail)) return;
       triggerAlert('Cannot bridge connection to backend.', 'logout');
     }
   };
+
   const handleForgotPasswordSubmit = async (emailValue = email) => {
+    const cleanEmail = normalizeEmail(emailValue);
+    setEmail(cleanEmail);
+
     try {
-      const cleanEmail = normalizeEmail(emailValue);
-      setEmail(cleanEmail);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await fetch(`${BASE_URL}/api/forgot-password`, {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail })
       });
-      const data = await response.json();
+      const data = await parseResponseBody(response);
       if (response.ok) {
         triggerAlert(data.message || 'Recovery code generated!', 'success');
         return true;
-      } else {
-        triggerAlert(data.message || 'Email trace not found in records.', 'error-red');
-        return false;
       }
+
+      const localUser = findLocalUserByEmail(cleanEmail);
+      if (localUser) {
+        const code = issueLocalResetCode(cleanEmail);
+        window.alert(`Your local recovery code is ${code}.`);
+        triggerAlert('Local recovery code generated.', 'success');
+        return true;
+      }
+
+      triggerAlert(data.message || 'Email trace not found in records.', 'error-red');
+      return false;
     } catch (error) {
+      const localUser = findLocalUserByEmail(cleanEmail);
+      if (localUser) {
+        const code = issueLocalResetCode(cleanEmail);
+        window.alert(`Your local recovery code is ${code}.`);
+        triggerAlert('Local recovery code generated.', 'success');
+        return true;
+      }
+
+      triggerAlert('Cannot bridge connection to backend.', 'logout');
+      return false;
+    }
+  };
+
+  const handleVerifyOtpSubmit = async (emailValue, otp) => {
+    const cleanEmail = normalizeEmail(emailValue);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, otp, code: otp })
+      });
+      const data = await parseResponseBody(response);
+      if (response.ok) return true;
+
+      if (getValidLocalResetCode(cleanEmail, otp)) return true;
+
+      triggerAlert(data.message || 'Invalid or expired OTP code.', 'error-red');
+      return false;
+    } catch (error) {
+      if (getValidLocalResetCode(cleanEmail, otp)) return true;
+      triggerAlert('Cannot verify the recovery code right now.', 'logout');
+      return false;
+    }
+  };
+
+  const handleResetPasswordSubmit = async (emailValue, newPassword, otp) => {
+    const cleanEmail = normalizeEmail(emailValue);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, newPassword, password: newPassword, otp, code: otp })
+      });
+      const data = await parseResponseBody(response);
+      if (response.ok) {
+        clearLocalResetCode(cleanEmail);
+        triggerAlert(data.message || 'Password updated successfully!', 'success');
+        return true;
+      }
+
+      if (getValidLocalResetCode(cleanEmail, otp)) {
+        updateLocalUserRecord(cleanEmail, (user) => ({ ...user, password: newPassword }));
+        clearLocalResetCode(cleanEmail);
+        triggerAlert('Password updated successfully!', 'success');
+        return true;
+      }
+
+      triggerAlert(data.message || 'Failed to sync new credentials.', 'error-red');
+      return false;
+    } catch (error) {
+      if (getValidLocalResetCode(cleanEmail, otp)) {
+        updateLocalUserRecord(cleanEmail, (user) => ({ ...user, password: newPassword }));
+        clearLocalResetCode(cleanEmail);
+        triggerAlert('Password updated successfully!', 'success');
+        return true;
+      }
+
       triggerAlert('Cannot bridge connection to backend.', 'logout');
       return false;
     }
@@ -1841,7 +2168,9 @@ export default function App() {
     if (viewName === 'admin') setAdminInitialTab('overview');
     setCurrentView(viewName);
     if (viewName !== 'settings') setSettingsMode('home');
-    if (viewName === 'loan_status') refreshLatestLoanStatus();
+    if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(viewName)) {
+      refreshLatestLoanStatus();
+    }
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
 
@@ -1967,6 +2296,8 @@ export default function App() {
               password={password} setPassword={setPassword} confirmPassword={confirmPassword} setConfirmPassword={setConfirmPassword}
               handleLoginSubmit={handleLoginSubmit} handleSignUpSubmit={handleSignUpSubmit}
               handleForgotPasswordSubmit={handleForgotPasswordSubmit}
+              handleVerifyOtpSubmit={handleVerifyOtpSubmit}
+              handleResetPasswordSubmit={handleResetPasswordSubmit}
               signupLoading={signupLoading}
             />
           </div>
@@ -2296,7 +2627,7 @@ export default function App() {
 
                   {settingsMode === 'home' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
-                      <button className="auth-submit-btn" onClick={() => { setPassword(''); setConfirmPassword(''); setSettingsMode('password'); }}>
+                      <button className="auth-submit-btn" onClick={() => { setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setSettingsMode('password'); }}>
                         Change Password
                       </button>
                       <button className="auth-submit-btn" onClick={() => {
@@ -2314,6 +2645,26 @@ export default function App() {
 
                   {settingsMode === 'password' && (
                     <form onSubmit={handlePasswordUpdate} className="auth-form">
+                      <div className="input-group">
+                        <label>Current Password</label>
+                        <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input
+                            type={showCurrentPassword ? "text" : "password"}
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            placeholder="Enter current password"
+                            style={{ width: '100%', paddingRight: '40px' }}
+                            required
+                          />
+                          <span
+                            className="password-toggle-eye"
+                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                            style={{ position: 'absolute', right: '12px', cursor: 'pointer', userSelect: 'none', fontSize: '20px', color: '#f49e2f', display: 'flex', alignItems: 'center' }}
+                          >
+                            {showCurrentPassword ? <ion-icon name="eye-off-outline"></ion-icon> : <ion-icon name="eye-outline"></ion-icon>}
+                          </span>
+                        </div>
+                      </div>
                       <div className="input-group">
                         <label>New Password</label>
                         <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -2355,7 +2706,7 @@ export default function App() {
                         </div>
                       </div>
                       <div className="form-action-buttons">
-                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setSettingsMode('home')}>Cancel</button>
+                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => { setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setSettingsMode('home'); }}>Cancel</button>
                         <button type="submit" className="auth-submit-btn">Update Password</button>
                       </div>
                     </form>
@@ -2393,6 +2744,7 @@ export default function App() {
                   onUserVerified={handleUserVerified}
                   onLoanReviewed={handleLoanReviewed}
                   onAdminCountsChange={handleAdminCountsChange}
+                  localUsers={localUsers}
                   initialTab={adminInitialTab}
                 />
               )}
