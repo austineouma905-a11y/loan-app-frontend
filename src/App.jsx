@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import './App.css';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 
 const getPasswordStrength = (value = '') => {
   let score = 0;
@@ -569,6 +571,134 @@ const getLoanValue = (loan, keys, fallback = '') => {
   return fallback;
 };
 
+const USER_STATUS_KEYS = ['account_status', 'accountStatus', 'verification_status', 'verificationStatus', 'status'];
+const USER_VERIFICATION_KEYS = ['is_verified', 'isVerified', 'verified', 'approved', 'is_approved', 'isApproved'];
+const LOAN_STATUS_KEYS = ['status', 'loan_status', 'loanStatus', 'approval_status', 'approvalStatus'];
+
+const titleCaseStatus = (value) => (
+  String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+);
+
+const normalizeStatusText = (value) => String(value || '').trim().toLowerCase();
+
+const statusIncludesAny = (value, words) => {
+  const normalized = normalizeStatusText(value);
+  return words.some((word) => normalized.includes(word));
+};
+
+const isAffirmativeValue = (value) => {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+
+  return ['true', '1', 'yes', 'verified', 'approved', 'active'].includes(normalizeStatusText(value));
+};
+
+const isNegativeValue = (value) => {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'boolean') return !value;
+  if (typeof value === 'number') return value === 0;
+
+  return ['false', '0', 'no', 'pending', 'unverified', 'rejected', 'declined'].includes(normalizeStatusText(value));
+};
+
+const getUserStatusText = (user) => getLoanValue(user, USER_STATUS_KEYS, '');
+
+const getUserRecordId = (user) => getLoanValue(user, ['id', 'userId', 'user_id'], '');
+
+const getUserRecordEmail = (user) => normalizeEmail(getLoanValue(user, ['email'], ''));
+
+const recordsReferToSameUser = (first, second) => {
+  const firstId = String(getUserRecordId(first) || '');
+  const secondId = String(getUserRecordId(second) || '');
+  const firstEmail = getUserRecordEmail(first);
+  const secondEmail = getUserRecordEmail(second);
+
+  return Boolean((firstId && secondId && firstId === secondId) || (firstEmail && secondEmail && firstEmail === secondEmail));
+};
+
+const getUserDisplayName = (user) => {
+  const directName = getLoanValue(user, ['name', 'full_name', 'fullName'], '');
+  if (directName) return directName;
+
+  return `${getLoanValue(user, ['first_name', 'firstName'], '')} ${getLoanValue(user, ['last_name', 'lastName'], '')}`.trim() || 'New user';
+};
+
+const isUserPendingVerification = (user) => {
+  if (!user) return false;
+  if (user.pendingVerification || user.source === 'local-signup') return true;
+
+  const explicitVerification = getLoanValue(user, USER_VERIFICATION_KEYS, null);
+  if (isNegativeValue(explicitVerification)) return true;
+  if (isAffirmativeValue(explicitVerification)) return false;
+
+  return statusIncludesAny(getUserStatusText(user), ['pending', 'review', 'processing', 'progress', 'unverified', 'waiting', 'new']);
+};
+
+const getUserVerificationLabel = (user) => {
+  if (isUserPendingVerification(user)) return 'Pending Verification';
+
+  const statusText = getUserStatusText(user);
+  if (statusText) return titleCaseStatus(statusText);
+
+  return 'Verified';
+};
+
+const getLoanStatusText = (loanOrStatus) => (
+  typeof loanOrStatus === 'object'
+    ? getLoanValue(loanOrStatus, LOAN_STATUS_KEYS, '')
+    : loanOrStatus
+);
+
+const isPendingLoanStatus = (loanOrStatus) => (
+  statusIncludesAny(getLoanStatusText(loanOrStatus), ['pending', 'review', 'processing', 'progress', 'request'])
+);
+
+const isApprovedLoanStatus = (loanOrStatus) => (
+  statusIncludesAny(getLoanStatusText(loanOrStatus), ['approved', 'disbursed', 'active'])
+);
+
+const isRejectedLoanStatus = (loanOrStatus) => (
+  statusIncludesAny(getLoanStatusText(loanOrStatus), ['reject', 'declined', 'failed', 'denied'])
+);
+
+const getTableStatusClass = (status) => {
+  if (isApprovedLoanStatus(status) || statusIncludesAny(status, ['verified', 'paid', 'complete', 'completed'])) {
+    return 'status-completed';
+  }
+
+  if (isRejectedLoanStatus(status) || statusIncludesAny(status, ['unverified'])) {
+    return 'status-failed';
+  }
+
+  return 'status-pending';
+};
+
+const readStoredSignupNotifications = () => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    const stored = JSON.parse(window.localStorage.getItem(SIGNUP_NOTIFICATIONS_KEY) || '[]');
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredSignupNotifications = (notifications) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(SIGNUP_NOTIFICATIONS_KEY, JSON.stringify(notifications));
+  } catch {}
+};
+
+const upsertSignupNotification = (currentNotifications, notification) => {
+  const withoutDuplicate = currentNotifications.filter((item) => !recordsReferToSameUser(item, notification));
+  return [notification, ...withoutDuplicate].slice(0, 25);
+};
+
 const formatKes = (amount) => {
     const numericAmount = Number(amount);
     const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
@@ -736,52 +866,255 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   );
 }
 
-function AdminView() {
+function NotificationsView({ pendingSignups = [], pendingCounts = {}, onOpenAdmin }) {
+  const signupCount = Math.max(pendingSignups.length, pendingCounts.users || 0);
+  const loanCount = pendingCounts.loans || 0;
+  const totalCount = signupCount + loanCount;
+  const recentSignups = pendingSignups.slice(0, 4);
+
+  return (
+    <div className="view-fade-in notifications-view">
+      <div className="notifications-header-row">
+        <div>
+          <h2>Notifications</h2>
+          <p className="loan-status-summary">
+            {totalCount > 0 ? `${totalCount} admin action${totalCount === 1 ? '' : 's'} waiting.` : 'No new admin notifications.'}
+          </p>
+        </div>
+        <span className={`notification-total-pill ${totalCount > 0 ? 'active' : ''}`}>{totalCount}</span>
+      </div>
+
+      <div className="notification-card-grid">
+        <section className="notification-card">
+          <div className="notification-card-top">
+            <ion-icon name="person-add-outline"></ion-icon>
+            <span>{signupCount}</span>
+          </div>
+          <h3>New User Verification</h3>
+          {recentSignups.length === 0 ? (
+            <p>No local signup notifications.</p>
+          ) : (
+            <div className="notification-list">
+              {recentSignups.map((signup) => (
+                <div className="notification-list-item" key={getUserRecordId(signup) || getUserRecordEmail(signup)}>
+                  <strong>{getUserDisplayName(signup)}</strong>
+                  <span>{getUserRecordEmail(signup)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" className="auth-submit-btn" onClick={() => onOpenAdmin('users')}>
+            Review Users
+          </button>
+        </section>
+
+        <section className="notification-card">
+          <div className="notification-card-top">
+            <ion-icon name="cash-outline"></ion-icon>
+            <span>{loanCount}</span>
+          </div>
+          <h3>Loan Approval Queue</h3>
+          <p>{loanCount > 0 ? 'Loan requests need an admin decision.' : 'No loan requests waiting for review.'}</p>
+          <button type="button" className="auth-submit-btn" onClick={() => onOpenAdmin('overview')}>
+            Review Loans
+          </button>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AdminView({
+  onUserVerified = () => {},
+  onLoanReviewed = () => {},
+  onAdminCountsChange = () => {},
+  initialTab = 'overview'
+}) {
   const [secret, setSecret] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [users, setUsers] = useState([]);
   const [loans, setLoans] = useState([]);
   const [analytics, setAnalytics] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(initialTab || 'overview');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+  const [adminFeedback, setAdminFeedback] = useState({ message: '', type: '' });
+  const [actionLoadingKey, setActionLoadingKey] = useState('');
+  const BASE_URL = API_BASE_URL;
+
+  useEffect(() => {
+    setActiveTab(initialTab || 'overview');
+  }, [initialTab]);
+
+  const pendingVerificationUsers = users.filter(isUserPendingVerification);
+  const analyticsPendingLoans = Array.isArray(analytics?.pendingLoanRequests) ? analytics.pendingLoanRequests : [];
+  const pendingLoansFromTable = loans.filter(isPendingLoanStatus);
+  const pendingLoanRequests = [
+    ...analyticsPendingLoans,
+    ...pendingLoansFromTable.filter((loan) => {
+      const loanId = String(getLoanValue(loan, ['id', 'loanId', 'loan_id'], ''));
+      return !analyticsPendingLoans.some((pendingLoan) => String(getLoanValue(pendingLoan, ['id', 'loanId', 'loan_id'], '')) === loanId);
+    })
+  ];
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    onAdminCountsChange({
+      users: pendingVerificationUsers.length,
+      loans: pendingLoanRequests.length
+    });
+  }, [isAuthenticated, pendingVerificationUsers.length, pendingLoanRequests.length, onAdminCountsChange]);
 
   const loadAdminData = async () => {
-    const headers = { 'x-admin-secret': secret };
-    const [usersRes, loansRes, analyticsRes] = await Promise.all([
-      fetch(`${BASE_URL}/api/admin/users`, { headers }),
-      fetch(`${BASE_URL}/api/admin/loans`, { headers }),
-      fetch(`${BASE_URL}/api/admin/analytics`, { headers })
-    ]);
+    setLoading(true);
+    setError('');
+    try {
+      const headers = { 'x-admin-secret': secret };
+      const [usersRes, loansRes, analyticsRes] = await Promise.all([
+        fetch(`${BASE_URL}/api/admin/users`, { headers }),
+        fetch(`${BASE_URL}/api/admin/loans`, { headers }),
+        fetch(`${BASE_URL}/api/admin/analytics`, { headers })
+      ]);
 
-    if (!usersRes.ok || !loansRes.ok || !analyticsRes.ok) {
-      throw new Error('Wrong admin password!');
+      if (!usersRes.ok || !loansRes.ok || !analyticsRes.ok) {
+        throw new Error('Wrong admin password!');
+      }
+
+      const [usersData, loansData, analyticsData] = await Promise.all([
+        usersRes.json(),
+        loansRes.json(),
+        analyticsRes.json()
+      ]);
+
+      setUsers(usersData.users || []);
+      setLoans(loansData.loans || []);
+      setAnalytics(analyticsData);
+    } catch (adminError) {
+      setError(adminError.message || 'Cannot connect to server.');
+      throw adminError;
+    } finally {
+      setLoading(false);
     }
-
-    const [usersData, loansData, analyticsData] = await Promise.all([
-      usersRes.json(),
-      loansRes.json(),
-      analyticsRes.json()
-    ]);
-
-    setUsers(usersData.users || []);
-    setLoans(loansData.loans || []);
-    setAnalytics(analyticsData);
   };
 
   const handleAdminLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
     try {
       await loadAdminData();
       setIsAuthenticated(true);
-    } catch (adminError) {
-      setError(adminError.message || 'Cannot connect to server.');
+    } catch {
+      setIsAuthenticated(false);
+    }
+  };
+
+  const parseAdminResponse = async (response) => {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  };
+
+  const runAdminMutation = async (path, body, actionLabel) => {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-secret': secret
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const payload = await parseAdminResponse(response);
+
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || `${actionLabel} failed.`);
+    }
+
+    return payload;
+  };
+
+  const handleVerifyUser = async (user) => {
+    const userId = getUserRecordId(user);
+    const userEmail = getUserRecordEmail(user);
+    const actionKey = `user-${userId || userEmail}`;
+
+    if (!userId || String(userId).startsWith('local-')) {
+      setAdminFeedback({ message: 'User must exist on the backend before verification.', type: 'error' });
+      return;
+    }
+
+    setActionLoadingKey(actionKey);
+    setAdminFeedback({ message: '', type: '' });
+
+    try {
+      const payload = await runAdminMutation(
+        `/api/admin/users/${userId}/verify`,
+        { email: userEmail },
+        'User verification'
+      );
+
+      const verifiedUser = {
+        ...user,
+        ...(payload.user || {}),
+        status: 'Verified',
+        is_verified: true,
+        verified: true,
+        pendingVerification: false
+      };
+
+      setUsers((currentUsers) => currentUsers.map((existingUser) => (
+        recordsReferToSameUser(existingUser, verifiedUser) ? { ...existingUser, ...verifiedUser } : existingUser
+      )));
+      onUserVerified(verifiedUser);
+      setAdminFeedback({ message: 'User verified successfully.', type: 'success' });
+      await loadAdminData().catch(() => null);
+    } catch (mutationError) {
+      setAdminFeedback({ message: mutationError.message || 'Could not verify user.', type: 'error' });
     } finally {
-      setLoading(false);
+      setActionLoadingKey('');
+    }
+  };
+
+  const handleLoanReview = async (loan, decision) => {
+    const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
+    const fallbackStatus = decision === 'approve' ? 'Disbursed' : 'Rejected';
+    const actionKey = `loan-${decision}-${loanId}`;
+
+    if (!loanId) {
+      setAdminFeedback({ message: 'Loan record is missing an ID.', type: 'error' });
+      return;
+    }
+
+    setActionLoadingKey(actionKey);
+    setAdminFeedback({ message: '', type: '' });
+
+    try {
+      const payload = await runAdminMutation(
+        `/api/admin/loans/${loanId}/decision`,
+        { decision },
+        `${fallbackStatus} loan`
+      );
+
+      const updatedLoan = { ...loan, ...(payload.loan || {}), status: payload.loan?.status || fallbackStatus };
+      setLoans((currentLoans) => currentLoans.map((existingLoan) => (
+        String(getLoanValue(existingLoan, ['id', 'loanId', 'loan_id'], '')) === String(loanId)
+          ? { ...existingLoan, ...updatedLoan }
+          : existingLoan
+      )));
+      setAnalytics((currentAnalytics) => currentAnalytics ? {
+        ...currentAnalytics,
+        pendingLoanRequests: (currentAnalytics.pendingLoanRequests || []).filter((pendingLoan) => (
+          String(getLoanValue(pendingLoan, ['id', 'loanId', 'loan_id'], '')) !== String(loanId)
+        ))
+      } : currentAnalytics);
+      onLoanReviewed(updatedLoan);
+      setAdminFeedback({ message: payload.message || `Loan ${fallbackStatus.toLowerCase()} successfully.`, type: 'success' });
+      await loadAdminData().catch(() => null);
+    } catch (mutationError) {
+      setAdminFeedback({ message: mutationError.message || `Could not ${decision} loan.`, type: 'error' });
+    } finally {
+      setActionLoadingKey('');
     }
   };
 
@@ -817,8 +1150,6 @@ function AdminView() {
     </div>
   );
 
-  const pendingLoanRequests = analytics?.pendingLoanRequests || [];
-
   return (
     <div className="admin-dashboard-view">
       <div className="admin-header-row">
@@ -834,6 +1165,14 @@ function AdminView() {
           <strong>{analytics?.totalActiveUsers ?? users.length}</strong>
         </div>
         <div className="admin-stat-card">
+          <span>Pending Signups</span>
+          <strong>{pendingVerificationUsers.length}</strong>
+        </div>
+        <div className="admin-stat-card">
+          <span>Pending Loans</span>
+          <strong>{pendingLoanRequests.length}</strong>
+        </div>
+        <div className="admin-stat-card">
           <span>Total Disbursed</span>
           <strong>{formatKes(analytics?.totalDisbursed || 0)}</strong>
         </div>
@@ -847,6 +1186,12 @@ function AdminView() {
         </div>
       </div>
 
+      {adminFeedback.message && (
+        <div className={`admin-feedback ${adminFeedback.type}`}>
+          {adminFeedback.message}
+        </div>
+      )}
+
       <div className="admin-tab-row">
         <button className={`auth-submit-btn ${activeTab === 'overview' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({users.length})</button>
@@ -854,29 +1199,92 @@ function AdminView() {
       </div>
 
       {activeTab === 'overview' && (
-        <div className="admin-panel-block">
-          <h3>Pending Loan Requests</h3>
-          {pendingLoanRequests.length === 0 ? (
-            <p className="loan-status-empty-text">No pending loan requests.</p>
-          ) : (
-            <div className="responsive-table-shell">
-              <table className="data-table">
-                <thead><tr>
-                  <th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th>
-                </tr></thead>
-                <tbody>{pendingLoanRequests.map((loan) => (
-                  <tr key={loan.id}>
-                    <td>{loan.first_name} {loan.last_name}</td>
-                    <td>{loan.loan_type}</td>
-                    <td>{formatKes(loan.principal_amount || loan.amount)}</td>
-                    <td>{formatKes(loan.repayment_amount || loan.amount)}</td>
-                    <td>{formatLoanDate(loan.due_date)}</td>
-                    <td>{loan.status}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          )}
+        <div className="admin-panel-stack">
+          <div className="admin-panel-block">
+            <h3>Pending User Verifications</h3>
+            {pendingVerificationUsers.length === 0 ? (
+              <p className="loan-status-empty-text">No pending user verifications.</p>
+            ) : (
+              <div className="responsive-table-shell">
+                <table className="data-table">
+                  <thead><tr>
+                    <th>User</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
+                  </tr></thead>
+                  <tbody>{pendingVerificationUsers.map((user) => {
+                    const userKey = getUserRecordId(user) || getUserRecordEmail(user);
+                    const actionKey = `user-${userKey}`;
+                    return (
+                      <tr key={userKey}>
+                        <td>{getUserDisplayName(user)}</td>
+                        <td>{getUserRecordEmail(user) || '-'}</td>
+                        <td>{getLoanValue(user, ['phone'], '-')}</td>
+                        <td>{formatLoanDate(getLoanValue(user, ['createdAt', 'created_at', 'dateJoined', 'date_joined']))}</td>
+                        <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(user))}`}>{getUserVerificationLabel(user)}</span></td>
+                        <td>
+                          <button
+                            type="button"
+                            className="admin-action-btn approve"
+                            onClick={() => handleVerifyUser(user)}
+                            disabled={actionLoadingKey === actionKey}
+                          >
+                            {actionLoadingKey === actionKey ? 'Verifying...' : 'Verify'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="admin-panel-block">
+            <h3>Pending Loan Requests</h3>
+            {pendingLoanRequests.length === 0 ? (
+              <p className="loan-status-empty-text">No pending loan requests.</p>
+            ) : (
+              <div className="responsive-table-shell">
+                <table className="data-table">
+                  <thead><tr>
+                    <th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
+                  </tr></thead>
+                  <tbody>{pendingLoanRequests.map((loan) => {
+                    const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
+                    return (
+                      <tr key={loanId || `${getUserDisplayName(loan)}-${getLoanValue(loan, ['loan_type', 'loanType'], '')}`}>
+                        <td>{getUserDisplayName(loan)}</td>
+                        <td>{getLoanValue(loan, ['loan_type', 'loanType', 'transaction_type'], '-')}</td>
+                        <td>{formatKes(loan.principal_amount || loan.amount)}</td>
+                        <td>{formatKes(loan.repayment_amount || loan.amount)}</td>
+                        <td>{formatLoanDate(loan.due_date)}</td>
+                        <td><span className={`table-status ${getTableStatusClass(getLoanStatusText(loan))}`}>{titleCaseStatus(getLoanStatusText(loan) || 'Pending')}</span></td>
+                        <td>
+                          <div className="admin-action-row">
+                            <button
+                              type="button"
+                              className="admin-action-btn approve"
+                              onClick={() => handleLoanReview(loan, 'approve')}
+                              disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
+                            >
+                              {actionLoadingKey === `loan-approve-${loanId}` ? 'Approving...' : 'Approve'}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-action-btn reject"
+                              onClick={() => handleLoanReview(loan, 'reject')}
+                              disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
+                            >
+                              {actionLoadingKey === `loan-reject-${loanId}` ? 'Rejecting...' : 'Reject'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -884,15 +1292,30 @@ function AdminView() {
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
-              <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th>
+              <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
             </tr></thead>
             <tbody>{users.map(u => (
               <tr key={u.id}>
                 <td>{u.id}</td>
-                <td>{u.first_name} {u.last_name}</td>
+                <td>{getUserDisplayName(u)}</td>
                 <td>{u.email}</td>
                 <td>{u.phone}</td>
                 <td>{formatLoanDate(u.createdAt)}</td>
+                <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(u))}`}>{getUserVerificationLabel(u)}</span></td>
+                <td>
+                  {isUserPendingVerification(u) ? (
+                    <button
+                      type="button"
+                      className="admin-action-btn approve"
+                      onClick={() => handleVerifyUser(u)}
+                      disabled={actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}`}
+                    >
+                      {actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}` ? 'Verifying...' : 'Verify'}
+                    </button>
+                  ) : (
+                    <span className="admin-muted-text">Verified</span>
+                  )}
+                </td>
               </tr>
             ))}</tbody>
           </table>
@@ -903,18 +1326,42 @@ function AdminView() {
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
-              <th>ID</th><th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th>
+              <th>ID</th><th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
             </tr></thead>
             <tbody>{loans.map(l => (
               <tr key={l.id}>
                 <td>{l.id}</td>
-                <td>{l.first_name} {l.last_name}</td>
+                <td>{getUserDisplayName(l)}</td>
                 <td>{l.transaction_type || l.loan_type}</td>
                 <td>{formatKes(Math.abs(Number(l.principal_amount || l.amount)))}</td>
                 <td>{formatKes(Math.abs(Number(l.repayment_amount || l.amount)))}</td>
                 <td>{l.receipt_number || l.account_number || '-'}</td>
-                <td>{l.status}</td>
+                <td><span className={`table-status ${getTableStatusClass(getLoanStatusText(l))}`}>{titleCaseStatus(getLoanStatusText(l) || 'Pending')}</span></td>
                 <td>{formatLoanDate(l.completed_at || l.date_applied)}</td>
+                <td>
+                  {isPendingLoanStatus(l) ? (
+                    <div className="admin-action-row">
+                      <button
+                        type="button"
+                        className="admin-action-btn approve"
+                        onClick={() => handleLoanReview(l, 'approve')}
+                        disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
+                      >
+                        {actionLoadingKey === `loan-approve-${l.id}` ? 'Approving...' : 'Approve'}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-action-btn reject"
+                        onClick={() => handleLoanReview(l, 'reject')}
+                        disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
+                      >
+                        {actionLoadingKey === `loan-reject-${l.id}` ? 'Rejecting...' : 'Reject'}
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="admin-muted-text">Closed</span>
+                  )}
+                </td>
               </tr>
             ))}</tbody>
           </table>
@@ -931,6 +1378,9 @@ export default function App() {
   const notificationTimerRef = useRef(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
+  const [signupNotifications, setSignupNotifications] = useState(() => readStoredSignupNotifications());
+  const [adminPendingCounts, setAdminPendingCounts] = useState({ users: 0, loans: 0 });
+  const [adminInitialTab, setAdminInitialTab] = useState('overview');
   
   // Settings sub-view states and toggles
   const [settingsMode, setSettingsMode] = useState('home'); // home, password, profile
@@ -994,6 +1444,8 @@ export default function App() {
   const currentLoanBalance = Number(loanBalance) || 0;
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
+  const pendingSignupCount = Math.max(signupNotifications.length, adminPendingCounts.users || 0);
+  const pendingNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
 
   const triggerAlert = (message, type) => {
     if (notificationTimerRef.current) {
@@ -1006,6 +1458,46 @@ export default function App() {
       notificationTimerRef.current = null;
     }, 4500);
   };
+
+  const handleAdminCountsChange = useCallback((counts) => {
+    setAdminPendingCounts((currentCounts) => {
+      const nextCounts = {
+        users: counts.users || 0,
+        loans: counts.loans || 0
+      };
+
+      if (currentCounts.users === nextCounts.users && currentCounts.loans === nextCounts.loans) {
+        return currentCounts;
+      }
+
+      return nextCounts;
+    });
+  }, []);
+
+  const handleUserVerified = useCallback((verifiedUser) => {
+    setSignupNotifications((currentNotifications) => {
+      const nextNotifications = currentNotifications.filter((item) => !recordsReferToSameUser(item, verifiedUser));
+      writeStoredSignupNotifications(nextNotifications);
+      return nextNotifications;
+    });
+    setAdminPendingCounts((currentCounts) => ({
+      ...currentCounts,
+      users: Math.max((currentCounts.users || 0) - 1, 0)
+    }));
+  }, []);
+
+  const handleLoanReviewed = useCallback(() => {
+    setAdminPendingCounts((currentCounts) => ({
+      ...currentCounts,
+      loans: Math.max((currentCounts.loans || 0) - 1, 0)
+    }));
+  }, []);
+
+  const handleOpenAdmin = useCallback((tab = 'overview') => {
+    setAdminInitialTab(tab);
+    setCurrentView('admin');
+    if (window.innerWidth <= 768) setIsMenuOpen(false);
+  }, []);
 
   const refreshLatestLoanStatus = async (userId = userProfile.id) => {
     if (!userId) return;
@@ -1210,27 +1702,44 @@ export default function App() {
     setSignupLoading(true);
     try {
       const cleanEmail = normalizeEmail(email);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await fetch(`${BASE_URL}/api/signup`, {
+      const response = await fetch(`${API_BASE_URL}/api/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email: cleanEmail, phone, password })
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          email: cleanEmail,
+          phone,
+          password,
+          status: 'Pending Verification'
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setIsLoggedIn(true);
-        setCurrentView('dashboard_home');
-        setLoanBalance(0);
-        setLatestLoan(null);
-        setLoanStatusError('');
-        setUserProfile({
+        const pendingSignup = {
           id: data.userId,
+          userId: data.userId,
           name: `${firstName} ${lastName}`.trim(),
           email: cleanEmail,
           phone: phone,
-          loanId: data.loanId
+          loanId: data.loanId,
+          status: data.status || data.accountStatus || 'Pending Verification',
+          createdAt: new Date().toISOString(),
+          pendingVerification: true,
+          source: 'local-signup'
+        };
+
+        setSignupNotifications((currentNotifications) => {
+          const nextNotifications = upsertSignupNotification(currentNotifications, pendingSignup);
+          writeStoredSignupNotifications(nextNotifications);
+          setAdminPendingCounts((currentCounts) => ({
+            ...currentCounts,
+            users: Math.max((currentCounts.users || 0), nextNotifications.length)
+          }));
+          return nextNotifications;
         });
-        triggerAlert('Account synchronized!', 'success');
+        setAuthMode('login');
+        triggerAlert('Account created. Admin verification is required before login.', 'success');
         setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setPassword(''); setConfirmPassword('');
       } else {
         triggerAlert(data.message || 'Signup validation error', 'logout');
@@ -1245,14 +1754,18 @@ export default function App() {
   const handleLoginSubmit = async () => {
     try {
       const cleanEmail = normalizeEmail(email);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await fetch(`${BASE_URL}/api/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, password })
       });
       const data = await response.json();
       if (response.ok) {
+        if (isUserPendingVerification(data)) {
+          triggerAlert('Your account is waiting for admin verification.', 'info');
+          return;
+        }
+
         const loginLoan = data.latestLoan || data.loan || (data.loanStatus ? {
           status: data.loanStatus,
           amount: data.loanAmount || data.loanBalance || 0,
@@ -1276,6 +1789,11 @@ export default function App() {
         });
         refreshLatestLoanStatus(data.userId);
         triggerAlert('Successfully logged in!', 'success');
+        setSignupNotifications((currentNotifications) => {
+          const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
+          writeStoredSignupNotifications(nextNotifications);
+          return nextNotifications;
+        });
         setEmail(''); setPassword('');
       } else {
         triggerAlert(data.message || 'Invalid username or password!', 'error-red');
@@ -1320,6 +1838,7 @@ export default function App() {
   };
 
   const handleMobileNavClick = (viewName) => {
+    if (viewName === 'admin') setAdminInitialTab('overview');
     setCurrentView(viewName);
     if (viewName !== 'settings') setSettingsMode('home');
     if (viewName === 'loan_status') refreshLatestLoanStatus();
@@ -1344,8 +1863,7 @@ export default function App() {
 
     setLoanRequestLoading(true);
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await fetch(`${BASE_URL}/api/loans`, {
+      const response = await fetch(`${API_BASE_URL}/api/loans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1357,7 +1875,8 @@ export default function App() {
           repaymentAmount: loanQuote.repaymentTotal,
           dueDate: loanQuote.dueDateIso,
           paymentMode: paymentMode,
-          accountNumber: disbursementAccount
+          accountNumber: disbursementAccount,
+          status: 'Pending Approval'
         })
       });
 
@@ -1373,17 +1892,23 @@ export default function App() {
           duration_months: loanQuote.months,
           interest_rate: loanQuote.annualRate,
           due_date: data.dueDate || loanQuote.dueDateIso,
-          status: data.status || data.loanStatus || 'Disbursed',
+          status: data.status || data.loanStatus || 'Pending Approval',
           date_applied: data.date_applied || data.dateApplied || new Date().toISOString(),
           payment_mode: paymentMode,
           account_number: disbursementAccount
         };
 
-        setLoanBalance(data.newTotalBalance); 
+        if (isApprovedLoanStatus(requestedLoan)) {
+          setLoanBalance(data.newTotalBalance || data.loanBalance || loanBalance);
+        }
         setLatestLoan(requestedLoan);
         setLoanStatusError('');
-        triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} processed securely!`, 'success');
-        setCurrentView('dashboard_home'); 
+        setAdminPendingCounts((currentCounts) => ({
+          ...currentCounts,
+          loans: (currentCounts.loans || 0) + 1
+        }));
+        triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} sent for admin review.`, 'success');
+        setCurrentView('loan_status'); 
       } else {
         triggerAlert(data.message || 'Error processing loan request on backend server.', 'logout');
       }
@@ -1415,7 +1940,18 @@ export default function App() {
           <div className="header-right-nav">
             <div className="signed-in-block">
               <div className="user-profile-avatar" onClick={() => handleMobileNavClick('profile')}>{userProfile.name.charAt(0)}</div>
-              <button className="header-logout-btn" onClick={handleLogout}>Log Out</button>
+              {/* <button className="header-logout-btn" onClick={handleLogout}>Log Out</button> */}
+              <button
+                type="button"
+                className={`notification-icon-button ${pendingNotificationCount > 0 ? 'has-notifications' : ''}`}
+                onClick={() => handleMobileNavClick('notifications')}
+                aria-label={`Notifications${pendingNotificationCount > 0 ? `, ${pendingNotificationCount} pending` : ''}`}
+              >
+                <ion-icon name={pendingNotificationCount > 0 ? 'notifications' : 'notifications-outline'}></ion-icon>
+                {pendingNotificationCount > 0 && (
+                  <span className="notification-count-badge">{pendingNotificationCount > 99 ? '99+' : pendingNotificationCount}</span>
+                )}
+              </button>
             </div>
           </div>
         )}
@@ -1699,6 +2235,14 @@ export default function App() {
                 />
               )}
 
+              {currentView === 'notifications' && (
+                <NotificationsView
+                  pendingSignups={signupNotifications}
+                  pendingCounts={adminPendingCounts}
+                  onOpenAdmin={handleOpenAdmin}
+                />
+              )}
+
               {currentView === 'repay_partially' && (
                 <div className="view-fade-in action-panel-card">
                   <h2 style={{color: '#ec7411'}}>Partial loan Repayment Option</h2>
@@ -1844,7 +2388,14 @@ export default function App() {
                 </div>
               )}
 
-              {currentView === 'admin' && <AdminView />}
+              {currentView === 'admin' && (
+                <AdminView
+                  onUserVerified={handleUserVerified}
+                  onLoanReviewed={handleLoanReviewed}
+                  onAdminCountsChange={handleAdminCountsChange}
+                  initialTab={adminInitialTab}
+                />
+              )}
             </main>
           </div>
         )}

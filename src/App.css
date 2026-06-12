@@ -83,6 +83,53 @@ body {
   gap: 12px;
 }
 
+.notification-icon-button {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border: 3px solid hsla(0, 69%, 98%, 0.96);
+  border-radius: 50%;
+  background: #e93f10;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 0;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.notification-icon-button:hover {
+  transform: translateY(-1px);
+  background: #f97316;
+}
+
+.notification-icon-button ion-icon {
+  font-size: 22px;
+}
+
+.notification-icon-button.has-notifications {
+  background: #d81b60;
+}
+
+.notification-count-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #10b981;
+  color: #06222c;
+  border: 2px solid #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+
 @media (max-width: 1024px) {
     .header-left-group h1 {
         font-size: 1.15rem;
@@ -986,7 +1033,8 @@ body {
   }
 
   .loan-status-refresh-btn {
-    width: 100%;
+    width: 80%;
+    cursor: pointer;
   }
 }
 
@@ -1218,6 +1266,122 @@ body {
   padding: 20px;
 }
 
+.notifications-view {
+  max-width: 860px;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.notifications-header-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.notifications-header-row h2 {
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+.notification-total-pill {
+  min-width: 46px;
+  min-height: 46px;
+  border-radius: 50%;
+  background: #23354a;
+  color: #dbeafe;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.notification-total-pill.active {
+  background: #10b981;
+  color: #06222c;
+}
+
+.notification-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.notification-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+  padding: 18px;
+  border-radius: 8px;
+  background: #0d2137;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.notification-card h3 {
+  margin: 0;
+  color: #ffffff;
+}
+
+.notification-card p {
+  margin: 0;
+  color: #c8d8e8;
+  line-height: 1.4;
+}
+
+.notification-card .auth-submit-btn {
+  margin-top: auto;
+}
+
+.notification-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #f49e2f;
+  font-size: 24px;
+}
+
+.notification-card-top span {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #102844;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notification-list-item {
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.notification-list-item strong,
+.notification-list-item span {
+  display: block;
+}
+
+.notification-list-item span {
+  margin-top: 4px;
+  color: #b8c7d9;
+  font-size: 12px;
+  word-break: break-word;
+}
+
 .admin-header-row {
   display: flex;
   justify-content: space-between;
@@ -1247,9 +1411,68 @@ body {
   gap: 12px;
 }
 
+.admin-panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .admin-panel-block h3 {
   color: #ffffff;
   margin: 0;
+}
+
+.admin-feedback {
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-weight: 800;
+  border: 1px solid currentColor;
+}
+
+.admin-feedback.success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-feedback.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.admin-action-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-action-btn {
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  min-height: 32px;
+  padding: 7px 10px;
+}
+
+.admin-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.admin-action-btn.approve {
+  background: #15803d;
+}
+
+.admin-action-btn.reject {
+  background: #b91c1c;
+}
+
+.admin-muted-text {
+  color: #b8c7d9;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 @media screen and (max-width: 700px) {
@@ -1262,6 +1485,11 @@ body {
   }
 
   .admin-header-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .notifications-header-row {
     align-items: flex-start;
     flex-direction: column;
   }
