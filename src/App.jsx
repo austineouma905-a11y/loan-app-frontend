@@ -2086,7 +2086,7 @@ export default function App() {
         return true;
       }
 
-      triggerAlert(data.message || 'Email trace not found in records.', 'error-red');
+      triggerAlert([data.message || 'Email trace not found in records.', data.hint].filter(Boolean).join(' '), 'error-red');
       return false;
     } catch (error) {
       const localUser = findLocalUserByEmail(cleanEmail);
