@@ -215,7 +215,7 @@ function AuthView({
 
         {forgotStep === 2 && (
           <>
-            <p className="auth-subtitle">4 OTP code sent to email then page...</p>
+            <p className="auth-subtitle">Enter the 4-digit code sent to your email.</p>
             <form onSubmit={onOtpSubmit} className="auth-form">
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', margin: '20px 0' }}>
                 {otpArray.map((digit, index) => (
@@ -246,17 +246,18 @@ function AuthView({
                 {timer > 0 ? (
                   <span>Time Count {timer} seconds</span>
                 ) : (
-                  <span 
-                    onClick={() => { setTimer(60); handleForgotPasswordSubmit(normalizeEmail(email)); }} 
-                    style={{ color: '#f49e2f', cursor: 'pointer', textDecoration: 'underline' }}
+                  <button
+                    type="button"
+                    onClick={() => { setTimer(60); handleForgotPasswordSubmit(normalizeEmail(email)); }}
+                    style={{ color: '#f49e2f', cursor: 'pointer', textDecoration: 'underline', background: 'none', border: 0, padding: 0 }}
                   >
                     Resend Code?
-                  </span>
+                  </button>
                 )}
               </div>
 
               <button type="submit" className="auth-submit-btn" disabled={isSubmitting}>
-                {isSubmitting ? 'Verifying...' : 'Successful'}
+                {isSubmitting ? 'Verifying...' : 'Verify Code'}
               </button>
             </form>
           </>
@@ -267,7 +268,7 @@ function AuthView({
             <p className="auth-subtitle">Create your new profile credentials password layout.</p>
             <form onSubmit={onNewPasswordSubmit} className="auth-form">
               <div className="input-group">
-                <label>New Password (-8 characters)</label>
+                <label>New Password (minimum 8 characters)</label>
                 <div className="password-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input 
                     type={showPassword ? "text" : "password"} 
@@ -366,9 +367,18 @@ function AuthView({
                 Remember me
               </label>
               
-              <span onClick={() => setAuthMode('forgot')} className="auth-link" style={{ fontSize: '13px', cursor: 'pointer', marginLeft: 'auto' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotStep(1);
+                  setOtpArray(['', '', '', '']);
+                  setAuthMode('forgot');
+                }}
+                className="auth-link"
+                style={{ fontSize: '13px', cursor: 'pointer', marginLeft: 'auto', background: 'none', border: 0, padding: 0 }}
+              >
                 Forgot Password?
-              </span>
+              </button>
             </div>
           </div>
           
@@ -1490,9 +1500,9 @@ export default function App() {
   }, [userProfile.phone]);
 
   const loanTypes = [
-    { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '5.5% p.a.', amounts: [5000, 10000, 15000] },
-    { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '10% p.a.', amounts: [50000, 100000, 150000] },
-    { id: 3, name: 'Emergency Loan', desc: 'Instant short-term cash Loans for immediate bill settlement', rate: '4.2% p.a.', amounts: [2500, 5000, 10000] }
+    { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '70% p.a.', amounts: [5000, 10000, 15000] },
+    { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '75% p.a.', amounts: [50000, 100000, 150000] },
+    { id: 3, name: 'Emergency Loan', desc: 'Instant short-term cash Loans for immediate bill settlement', rate: '60% p.a.', amounts: [2500, 5000, 10000] }
   ];
 
   const loanAmountBounds = getLoanAmountBounds(selectedLoan);
