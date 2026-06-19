@@ -7,6 +7,7 @@ const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-ba
 const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 const LOCAL_USERS_KEY = 'loan-app-local-users';
 const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
+const ALLOW_LOCAL_AUTH_FALLBACK = String(process.env?.REACT_APP_ALLOW_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
 const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.REACT_APP_ADMIN_EMAIL || 'austineouma905@gmail.com')
   .split(',')
   .map((email) => normalizeEmail(email))
@@ -1569,10 +1570,11 @@ export default function App() {
   const notificationTimerRef = useRef(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard_home');
-  const [signupNotifications, setSignupNotifications] = useState(() => readStoredSignupNotifications());
-  const [localUsers, setLocalUsers] = useState(() => readStoredLocalUsers());
+  const [signupNotifications, setSignupNotifications] = useState(() => (ALLOW_LOCAL_AUTH_FALLBACK ? readStoredSignupNotifications() : []));
+  const [localUsers, setLocalUsers] = useState(() => (ALLOW_LOCAL_AUTH_FALLBACK ? readStoredLocalUsers() : []));
   const [adminPendingCounts, setAdminPendingCounts] = useState({ users: 0, loans: 0 });
   const [adminInitialTab, setAdminInitialTab] = useState('overview');
+  const [navigationHistory, setNavigationHistory] = useState([]);
   
   // Settings sub-view states and toggles
   const [settingsMode, setSettingsMode] = useState('home'); // home, password, profile
@@ -1623,6 +1625,13 @@ export default function App() {
     }
   }, [userProfile.phone]);
 
+  useEffect(() => {
+    if (ALLOW_LOCAL_AUTH_FALLBACK || typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.removeItem(SIGNUP_NOTIFICATIONS_KEY);
+    window.localStorage.removeItem(LOCAL_USERS_KEY);
+    window.localStorage.removeItem(LOCAL_RESET_CODES_KEY);
+  }, []);
+
   const loanTypes = [
     { id: 1, name: 'Personal Loan', desc: 'Funding for personal expenses and medical needs.', rate: '70% p.a.', amounts: [5000, 10000, 15000] },
     { id: 2, name: 'Business Loan', desc: 'Loan for boosting stock and scaling up standard market operations.', rate: '75% p.a.', amounts: [50000, 100000, 150000] },
@@ -1645,6 +1654,69 @@ export default function App() {
   const userNotificationCount = userNotifications.length;
   const pendingNotificationCount = isAdminUser ? adminNotificationCount : userNotificationCount;
 
+  const pushNavigationState = useCallback((snapshot) => {
+    const nextSnapshot = snapshot || {
+      view: currentView,
+      settingsMode,
+      adminInitialTab
+    };
+
+    setNavigationHistory((currentHistory) => {
+      const last = currentHistory[currentHistory.length - 1];
+      if (
+        last &&
+        last.view === nextSnapshot.view &&
+        last.settingsMode === nextSnapshot.settingsMode &&
+        last.adminInitialTab === nextSnapshot.adminInitialTab
+      ) {
+        return currentHistory;
+      }
+
+      return [...currentHistory, nextSnapshot].slice(-20);
+    });
+  }, [currentView, settingsMode, adminInitialTab]);
+
+  const restoreNavigationState = useCallback((snapshot) => {
+    if (!snapshot) return;
+
+    setCurrentView(snapshot.view || 'dashboard_home');
+    setSettingsMode(snapshot.settingsMode || 'home');
+    setAdminInitialTab(snapshot.adminInitialTab || 'overview');
+  }, []);
+
+  const navigateToView = useCallback((viewName, options = {}) => {
+    const nextView = viewName || 'dashboard_home';
+    const nextSettingsMode = Object.prototype.hasOwnProperty.call(options, 'settingsMode')
+      ? options.settingsMode
+      : 'home';
+    const nextAdminTab = Object.prototype.hasOwnProperty.call(options, 'adminInitialTab')
+      ? options.adminInitialTab
+      : adminInitialTab;
+
+    pushNavigationState();
+    setCurrentView(nextView);
+
+    if (nextView === 'settings' || Object.prototype.hasOwnProperty.call(options, 'settingsMode')) {
+      setSettingsMode(nextSettingsMode || 'home');
+    } else if (nextView !== 'settings') {
+      setSettingsMode('home');
+    }
+
+    if (nextView === 'admin' || Object.prototype.hasOwnProperty.call(options, 'adminInitialTab')) {
+      setAdminInitialTab(nextAdminTab || 'overview');
+    }
+  }, [adminInitialTab, pushNavigationState]);
+
+  const goBackOneStep = useCallback(() => {
+    setNavigationHistory((currentHistory) => {
+      if (currentHistory.length === 0) return currentHistory;
+
+      const previous = currentHistory[currentHistory.length - 1];
+      restoreNavigationState(previous);
+      return currentHistory.slice(0, -1);
+    });
+  }, [restoreNavigationState]);
+
   const triggerAlert = (message, type) => {
     if (notificationTimerRef.current) {
       clearTimeout(notificationTimerRef.current);
@@ -1658,6 +1730,7 @@ export default function App() {
   };
 
   const saveLocalUsers = useCallback((updater) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return;
     setLocalUsers((currentUsers) => {
       const nextUsers = typeof updater === 'function' ? updater(currentUsers) : updater;
       writeStoredLocalUsers(nextUsers);
@@ -1666,6 +1739,7 @@ export default function App() {
   }, []);
 
   const findLocalUserByEmail = useCallback((emailValue) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const cleanEmail = normalizeEmail(emailValue);
     return localUsers.find((user) => getUserRecordEmail(user) === cleanEmail);
   }, [localUsers]);
@@ -1675,6 +1749,7 @@ export default function App() {
   }, [saveLocalUsers]);
 
   const updateLocalUserRecord = useCallback((emailValue, updater) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const cleanEmail = normalizeEmail(emailValue);
     let updatedUser = null;
 
@@ -1688,6 +1763,7 @@ export default function App() {
   }, [saveLocalUsers]);
 
   const issueLocalResetCode = useCallback((emailValue) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const cleanEmail = normalizeEmail(emailValue);
     const code = createLocalResetCode();
     const nextCodes = [
@@ -1748,10 +1824,9 @@ export default function App() {
 
   const handleOpenAdmin = useCallback((tab = 'overview') => {
     if (!isAdminUser) return;
-    setAdminInitialTab(tab);
-    setCurrentView('admin');
+    navigateToView('admin', { adminInitialTab: tab });
     if (window.innerWidth <= 768) setIsMenuOpen(false);
-  }, [isAdminUser]);
+  }, [isAdminUser, navigateToView]);
 
   const refreshLatestLoanStatus = useCallback(async (userId = userProfile.id) => {
     if (!userId) return;
@@ -1984,6 +2059,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setNavigationHistory([]);
     setIsLoggedIn(false);
     setIsAdminUser(false);
     setCurrentView('dashboard_home');
@@ -2016,6 +2092,7 @@ export default function App() {
   };
 
   const createLocalSignupUser = (cleanEmail) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const localId = createLocalUserId();
     const name = `${firstName.trim()} ${lastName.trim()}`.trim();
     const localUser = {
@@ -2052,6 +2129,7 @@ export default function App() {
       account_number: data.accountNumber
     } : null);
 
+    setNavigationHistory([]);
     setIsLoggedIn(true);
     setIsAdminUser(Boolean(data.isAdmin || data.role === 'admin' || isAdminEmail(data.email || cleanEmail)));
     setCurrentView('dashboard_home');
@@ -2085,6 +2163,7 @@ export default function App() {
   };
 
   const tryLocalLogin = (cleanEmail) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return false;
     const localUser = findLocalUserByEmail(cleanEmail);
     if (!localUser) return false;
 
@@ -2161,7 +2240,7 @@ export default function App() {
         triggerAlert(data.message || 'Account created successfully. You can log in now.', 'success');
         resetSignupForm();
       } else {
-        if (response.status >= 500) {
+        if (ALLOW_LOCAL_AUTH_FALLBACK && response.status >= 500) {
           createLocalSignupUser(cleanEmail);
           setAuthMode('login');
           resetSignupForm();
@@ -2172,10 +2251,15 @@ export default function App() {
         triggerAlert(data.message || 'Signup validation error', 'logout');
       }
     } catch (error) {
-      createLocalSignupUser(cleanEmail);
-      setAuthMode('login');
-      resetSignupForm();
-      triggerAlert('Cannot reach backend, so the account was saved locally. You can log in now.', 'success');
+      if (ALLOW_LOCAL_AUTH_FALLBACK) {
+        createLocalSignupUser(cleanEmail);
+        setAuthMode('login');
+        resetSignupForm();
+        triggerAlert('Cannot reach backend, so the account was saved locally. You can log in now.', 'success');
+        return;
+      }
+
+      triggerAlert('Cannot reach backend. Signup was not saved.', 'logout');
     } finally {
       setSignupLoading(false);
     }
@@ -2200,11 +2284,11 @@ export default function App() {
           pendingVerification: false
         }, { cleanEmail });
       } else {
-        if (tryLocalLogin(cleanEmail)) return;
+        if (ALLOW_LOCAL_AUTH_FALLBACK && tryLocalLogin(cleanEmail)) return;
         triggerAlert(data.message || 'Invalid username or password!', 'error-red');
       }
     } catch (error) {
-      if (tryLocalLogin(cleanEmail)) return;
+      if (ALLOW_LOCAL_AUTH_FALLBACK && tryLocalLogin(cleanEmail)) return;
       triggerAlert('Cannot bridge connection to backend.', 'logout');
     }
   };
@@ -2225,23 +2309,27 @@ export default function App() {
         return true;
       }
 
-      const localUser = findLocalUserByEmail(cleanEmail);
-      if (localUser) {
-        const code = issueLocalResetCode(cleanEmail);
-        window.alert(`Your local recovery code is ${code}.`);
-        triggerAlert('Local recovery code generated.', 'success');
-        return true;
+      if (ALLOW_LOCAL_AUTH_FALLBACK) {
+        const localUser = findLocalUserByEmail(cleanEmail);
+        if (localUser) {
+          const code = issueLocalResetCode(cleanEmail);
+          window.alert(`Your local recovery code is ${code}.`);
+          triggerAlert('Local recovery code generated.', 'success');
+          return true;
+        }
       }
 
       triggerAlert([data.message || 'Email trace not found in records.', data.hint].filter(Boolean).join(' '), 'error-red');
       return false;
     } catch (error) {
-      const localUser = findLocalUserByEmail(cleanEmail);
-      if (localUser) {
-        const code = issueLocalResetCode(cleanEmail);
-        window.alert(`Your local recovery code is ${code}.`);
-        triggerAlert('Local recovery code generated.', 'success');
-        return true;
+      if (ALLOW_LOCAL_AUTH_FALLBACK) {
+        const localUser = findLocalUserByEmail(cleanEmail);
+        if (localUser) {
+          const code = issueLocalResetCode(cleanEmail);
+          window.alert(`Your local recovery code is ${code}.`);
+          triggerAlert('Local recovery code generated.', 'success');
+          return true;
+        }
       }
 
       triggerAlert('Cannot bridge connection to backend.', 'logout');
@@ -2261,12 +2349,12 @@ export default function App() {
       const data = await parseResponseBody(response);
       if (response.ok) return true;
 
-      if (getValidLocalResetCode(cleanEmail, otp)) return true;
+      if (ALLOW_LOCAL_AUTH_FALLBACK && getValidLocalResetCode(cleanEmail, otp)) return true;
 
       triggerAlert(data.message || 'Invalid or expired OTP code.', 'error-red');
       return false;
     } catch (error) {
-      if (getValidLocalResetCode(cleanEmail, otp)) return true;
+      if (ALLOW_LOCAL_AUTH_FALLBACK && getValidLocalResetCode(cleanEmail, otp)) return true;
       triggerAlert('Cannot verify the recovery code right now.', 'logout');
       return false;
     }
@@ -2288,7 +2376,7 @@ export default function App() {
         return true;
       }
 
-      if (getValidLocalResetCode(cleanEmail, otp)) {
+      if (ALLOW_LOCAL_AUTH_FALLBACK && getValidLocalResetCode(cleanEmail, otp)) {
         updateLocalUserRecord(cleanEmail, (user) => ({ ...user, password: newPassword }));
         clearLocalResetCode(cleanEmail);
         triggerAlert('Password updated successfully!', 'success');
@@ -2298,7 +2386,7 @@ export default function App() {
       triggerAlert(data.message || 'Failed to sync new credentials.', 'error-red');
       return false;
     } catch (error) {
-      if (getValidLocalResetCode(cleanEmail, otp)) {
+      if (ALLOW_LOCAL_AUTH_FALLBACK && getValidLocalResetCode(cleanEmail, otp)) {
         updateLocalUserRecord(cleanEmail, (user) => ({ ...user, password: newPassword }));
         clearLocalResetCode(cleanEmail);
         triggerAlert('Password updated successfully!', 'success');
@@ -2317,15 +2405,19 @@ export default function App() {
     setCustomAmount(String(defaultAmount));
     setLoanDurationMonths(1);
     setDisbursementAccount('');
-    setCurrentView('apply_loan_form');
+    navigateToView('apply_loan_form');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
 
   const handleMobileNavClick = (viewName) => {
     if (viewName === 'admin' && !isAdminUser) return;
-    if (viewName === 'admin') setAdminInitialTab('overview');
-    setCurrentView(viewName);
-    if (viewName !== 'settings') setSettingsMode('home');
+    if (viewName === 'admin') {
+      navigateToView('admin', { adminInitialTab: 'overview' });
+    } else if (viewName === 'settings') {
+      navigateToView('settings', { settingsMode: 'home' });
+    } else {
+      navigateToView(viewName);
+    }
     if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(viewName)) {
       refreshLatestLoanStatus();
     }
@@ -2395,7 +2487,7 @@ export default function App() {
           loans: (currentCounts.loans || 0) + 1
         }));
         triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} sent for admin review.`, 'success');
-        setCurrentView('loan_status'); 
+        navigateToView('loan_status');
       } else {
         triggerAlert(data.message || 'Error processing loan request on backend server.', 'logout');
       }
@@ -2415,6 +2507,27 @@ export default function App() {
           {isLoggedIn && (
             <button className="menu-toggle" onClick={() => setIsMenuOpen(!isMenuOpen)}>
               {isMenuOpen ? '✕' : '☰'}
+            </button>
+          )}
+          {isLoggedIn && navigationHistory.length > 0 && (
+            <button
+              type="button"
+              onClick={goBackOneStep}
+              aria-label="Go back"
+              title="Go back"
+              style={{
+                background: 'none',
+                border: 0,
+                color: '#f49e2f',
+                padding: '6px 8px',
+                marginLeft: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              <ion-icon name="arrow-back-outline" style={{ fontSize: '26px' }}></ion-icon>
             </button>
           )}
           <h1>
@@ -2504,7 +2617,7 @@ export default function App() {
                     <div className="monetary-amount-display">
                       KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    <button className="pay-now-action-btn" onClick={() => { setRepayDropdown(true); setCurrentView('repay_fully'); }}>Pay Now</button>
+                    <button className="pay-now-action-btn" onClick={() => { setRepayDropdown(true); navigateToView('repay_fully'); }}>Pay Now</button>
                   </div>
                 </div>
               )}
@@ -2594,7 +2707,12 @@ export default function App() {
 
               {currentView === 'apply_loan_form' && selectedLoan && (
                 <div className="view-fade-in action-panel-card loan-application-panel" style={{ maxWidth: '720px', margin: '0 auto' }}>
-                  <h2>Apply for {selectedLoan.name}</h2>
+                  <div className="loan-status-header-row" style={{ marginBottom: '18px' }}>
+                    <div>
+                      <h2>Apply for {selectedLoan.name}</h2>
+                      <p className="loan-status-summary">Review the loan details, then continue with your application.</p>
+                    </div>
+                  </div>
                   <p className="rate" style={{color: '#f3ebec',}}>Interest Rate: <strong>{selectedLoan.rate}</strong></p>
                   
                   <form onSubmit={handleLoanRequestSubmit} className="auth-form">
@@ -2707,7 +2825,7 @@ export default function App() {
                     </div>
 
                     <div className="form-action-buttons">
-                      <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setCurrentView('loans')} disabled={loanRequestLoading}>Cancel</button>
+                      <button type="button" className="auth-submit-btn cancel-btn" onClick={goBackOneStep} disabled={loanRequestLoading}>Cancel</button>
                       <button type="submit" className="auth-submit-btn" disabled={loanRequestLoading}>
                         {loanRequestLoading ? <LoadingSpinner label="Requesting..." /> : 'Request Loan'}
                       </button>
@@ -2789,7 +2907,7 @@ export default function App() {
 
                   {settingsMode === 'home' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
-                      <button className="auth-submit-btn" onClick={() => { setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setSettingsMode('password'); }}>
+                      <button className="auth-submit-btn" onClick={() => { setCurrentPassword(''); setPassword(''); setConfirmPassword(''); navigateToView('settings', { settingsMode: 'password' }); }}>
                         Change Password
                       </button>
                       <button className="auth-submit-btn" onClick={() => {
@@ -2798,7 +2916,7 @@ export default function App() {
                         setLastName(names.slice(1).join(' ') || '');
                         setEmail(userProfile.email);
                         setPhone(userProfile.phone);
-                        setSettingsMode('profile');
+                        navigateToView('settings', { settingsMode: 'profile' });
                       }}>
                         Update Profile
                       </button>
@@ -2868,7 +2986,7 @@ export default function App() {
                         </div>
                       </div>
                       <div className="form-action-buttons">
-                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => { setCurrentPassword(''); setPassword(''); setConfirmPassword(''); setSettingsMode('home'); }}>Cancel</button>
+                        <button type="button" className="auth-submit-btn cancel-btn" onClick={goBackOneStep}>Cancel</button>
                         <button type="submit" className="auth-submit-btn">Update Password</button>
                       </div>
                     </form>
@@ -2893,7 +3011,7 @@ export default function App() {
                         <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
                       </div>
                       <div className="form-action-buttons">
-                        <button type="button" className="auth-submit-btn cancel-btn" onClick={() => setSettingsMode('home')}>Cancel</button>
+                        <button type="button" className="auth-submit-btn cancel-btn" onClick={goBackOneStep}>Cancel</button>
                         <button type="submit" className="auth-submit-btn">Save Changes</button>
                       </div>
                     </form>
