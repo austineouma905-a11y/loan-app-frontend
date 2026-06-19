@@ -7,6 +7,11 @@ const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-ba
 const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 const LOCAL_USERS_KEY = 'loan-app-local-users';
 const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
+const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.REACT_APP_ADMIN_EMAIL || 'austineouma905@gmail.com')
+  .split(',')
+  .map((email) => normalizeEmail(email))
+  .filter(Boolean);
+const isAdminEmail = (email) => ADMIN_EMAILS.includes(normalizeEmail(email));
 
 const getPasswordStrength = (value = '') => {
   let score = 0;
@@ -769,6 +774,75 @@ const formatLoanDate = (dateValue) => {
   return date.toLocaleDateString();
 };
 
+const buildUserNotifications = (records = [], loanBalance = 0) => {
+  const items = [];
+  const seenKeys = new Set();
+
+  const pushItem = (item) => {
+    if (!item || seenKeys.has(item.key)) return;
+    seenKeys.add(item.key);
+    items.push(item);
+  };
+
+  records.forEach((record) => {
+    if (!record) return;
+
+    const loanId = String(getLoanValue(record, ['id', 'loanId', 'loan_id'], '') || '');
+    const loanType = getLoanValue(record, ['loan_type', 'loanType'], 'Loan');
+    const status = normalizeStatusText(getLoanStatusText(record) || getLoanValue(record, ['display_status'], ''));
+    const amount = Number(getLoanValue(record, ['amount', 'loan_amount'], 0)) || 0;
+    const dateValue = getLoanValue(record, ['completed_at', 'date_applied', 'createdAt', 'created_at', 'date'], '');
+    const failureReason = getLoanValue(record, ['failure_reason'], '');
+    const keySeed = loanId || `${loanType}-${amount}-${dateValue}`;
+
+    if (statusIncludesAny(status, ['approved', 'disbursed', 'active'])) {
+      pushItem({
+        key: `approved-${keySeed}`,
+        title: `${loanType} approved`,
+        message: amount > 0
+          ? `Your loan request for ${formatKes(amount)} has been approved.`
+          : 'Your loan request has been approved.',
+        tone: 'success',
+        date: dateValue,
+        amount
+      });
+      return;
+    }
+
+    if (statusIncludesAny(status, ['rejected', 'declined', 'failed', 'denied'])) {
+      pushItem({
+        key: `rejected-${keySeed}`,
+        title: `${loanType} rejected`,
+        message: failureReason || 'Your loan request was not approved.',
+        tone: 'danger',
+        date: dateValue,
+        amount
+      });
+      return;
+    }
+
+    if (amount < 0) {
+      pushItem({
+        key: `repayment-${keySeed}`,
+        title: 'Repayment recorded',
+        message: `A repayment of ${formatKes(Math.abs(amount))} was posted to your account.`,
+        tone: 'info',
+        date: dateValue,
+        amount
+      });
+    }
+  });
+
+  return items.sort((first, second) => {
+    const firstTime = new Date(first.date || 0).getTime() || 0;
+    const secondTime = new Date(second.date || 0).getTime() || 0;
+
+    if (secondTime !== firstTime) return secondTime - firstTime;
+
+    return String(second.key).localeCompare(String(first.key));
+  });
+};
+
 const getLatestLoanRecord = (records = []) => {
   if (!Array.isArray(records)) return null;
 
@@ -921,7 +995,55 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   );
 }
 
-function NotificationsView({ pendingSignups = [], pendingCounts = {}, onOpenAdmin }) {
+function NotificationsView({
+  isAdmin = false,
+  userNotifications = [],
+  pendingSignups = [],
+  pendingCounts = {},
+  onOpenAdmin
+}) {
+  if (!isAdmin) {
+    const recentNotifications = userNotifications.slice(0, 8);
+    const totalCount = recentNotifications.length;
+
+    return (
+      <div className="view-fade-in notifications-view">
+        <div className="notifications-header-row">
+          <div>
+            <h2>Notifications</h2>
+            <p className="loan-status-summary">
+              {totalCount > 0 ? `${totalCount} account notification${totalCount === 1 ? '' : 's'}.` : 'No account notifications yet.'}
+            </p>
+          </div>
+          <span className={`notification-total-pill ${totalCount > 0 ? 'active' : ''}`}>{totalCount}</span>
+        </div>
+
+        <div className="notification-card-grid">
+          <section className="notification-card" style={{ gridColumn: '1 / -1' }}>
+            <div className="notification-card-top">
+              <ion-icon name="notifications-outline"></ion-icon>
+              <span>{totalCount}</span>
+            </div>
+            <h3>Account Activity</h3>
+            {recentNotifications.length === 0 ? (
+              <p>No loan approvals, rejections, or repayment updates yet.</p>
+            ) : (
+              <div className="notification-list">
+                {recentNotifications.map((item) => (
+                  <div className="notification-list-item" key={item.key}>
+                    <strong>{item.title}</strong>
+                    <span>{item.message}</span>
+                    <span>{formatLoanDate(item.date)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   const signupCount = Math.max(pendingSignups.length, pendingCounts.users || 0);
   const loanCount = pendingCounts.loans || 0;
   const totalCount = signupCount + loanCount;
@@ -931,7 +1053,7 @@ function NotificationsView({ pendingSignups = [], pendingCounts = {}, onOpenAdmi
     <div className="view-fade-in notifications-view">
       <div className="notifications-header-row">
         <div>
-          <h2>Notifications</h2>
+          <h2>Admin Notifications</h2>
           <p className="loan-status-summary">
             {totalCount > 0 ? `${totalCount} admin action${totalCount === 1 ? '' : 's'} waiting.` : 'No new admin notifications.'}
           </p>
@@ -1459,6 +1581,7 @@ export default function App() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -1477,6 +1600,7 @@ export default function App() {
   const [disbursementAccount, setDisbursementAccount] = useState('');
   const [loanBalance, setLoanBalance] = useState(0);
   const [latestLoan, setLatestLoan] = useState(null);
+  const [userNotifications, setUserNotifications] = useState([]);
   const [loanStatusLoading, setLoanStatusLoading] = useState(false);
   const [loanStatusError, setLoanStatusError] = useState('');
 
@@ -1517,7 +1641,9 @@ export default function App() {
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
   const pendingSignupCount = Math.max(signupNotifications.length, adminPendingCounts.users || 0);
-  const pendingNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
+  const adminNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
+  const userNotificationCount = userNotifications.length;
+  const pendingNotificationCount = isAdminUser ? adminNotificationCount : userNotificationCount;
 
   const triggerAlert = (message, type) => {
     if (notificationTimerRef.current) {
@@ -1621,10 +1747,11 @@ export default function App() {
   }, [userProfile.id]);
 
   const handleOpenAdmin = useCallback((tab = 'overview') => {
+    if (!isAdminUser) return;
     setAdminInitialTab(tab);
     setCurrentView('admin');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
-  }, []);
+  }, [isAdminUser]);
 
   const refreshLatestLoanStatus = useCallback(async (userId = userProfile.id) => {
     if (!userId) return;
@@ -1642,6 +1769,7 @@ export default function App() {
         parseResponseBody(balanceResponse)
       ]);
       let records = [];
+      let resolvedBalance = 0;
 
       if (transactionsResponse.ok) {
         records = transactionsData.transactions || transactionsData.loans || transactionsData.loanRecords || [];
@@ -1652,14 +1780,21 @@ export default function App() {
       }
 
       if (balanceResponse.ok) {
-        setLoanBalance(Number(balanceData.loanBalance || 0));
+        resolvedBalance = Number(balanceData.loanBalance || 0);
+        setLoanBalance(resolvedBalance);
       } else if (transactionsResponse.ok) {
-        const calculatedBalance = records.reduce((total, record) => {
+        resolvedBalance = records.reduce((total, record) => {
           const status = String(record.status || record.display_status || '').toLowerCase();
           const isPosted = ['disbursed', 'completed', 'paid', 'approved', 'active'].some((statusKey) => status.includes(statusKey));
           return isPosted ? total + (Number(record.amount) || 0) : total;
         }, 0);
-        setLoanBalance(calculatedBalance);
+        setLoanBalance(resolvedBalance);
+      }
+
+      if (transactionsResponse.ok) {
+        setUserNotifications(buildUserNotifications(records, resolvedBalance));
+      } else {
+        setUserNotifications([]);
       }
     } catch (error) {
       setLoanStatusError('Cannot connect to loan status records.');
@@ -1670,14 +1805,14 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
-    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(currentView)) return;
+    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
 
     refreshLatestLoanStatus(userProfile.id);
   }, [isLoggedIn, userProfile.id, currentView, refreshLatestLoanStatus]);
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
-    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(currentView)) return;
+    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
 
     const refreshTimer = setInterval(() => {
       refreshLatestLoanStatus(userProfile.id);
@@ -1685,6 +1820,14 @@ export default function App() {
 
     return () => clearInterval(refreshTimer);
   }, [isLoggedIn, userProfile.id, currentView, refreshLatestLoanStatus]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    if (isAdminUser) return;
+    if (currentView === 'admin') {
+      setCurrentView('dashboard_home');
+    }
+  }, [isLoggedIn, isAdminUser, currentView]);
 
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
@@ -1842,11 +1985,13 @@ export default function App() {
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    setIsAdminUser(false);
     setCurrentView('dashboard_home');
     setAuthMode('login');
     setSettingsMode('home');
     setLoanBalance(0);
     setLatestLoan(null);
+    setUserNotifications([]);
     setLoanStatusError('');
     setLoanStatusLoading(false);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
@@ -1908,9 +2053,11 @@ export default function App() {
     } : null);
 
     setIsLoggedIn(true);
+    setIsAdminUser(Boolean(data.isAdmin || data.role === 'admin' || isAdminEmail(data.email || cleanEmail)));
     setCurrentView('dashboard_home');
     setLoanBalance(data.loanBalance || 0);
     setLatestLoan(loginLoan);
+    setUserNotifications([]);
     setLoanStatusError('');
     setUserProfile({
       id: profileId,
@@ -2175,10 +2322,11 @@ export default function App() {
   };
 
   const handleMobileNavClick = (viewName) => {
+    if (viewName === 'admin' && !isAdminUser) return;
     if (viewName === 'admin') setAdminInitialTab('overview');
     setCurrentView(viewName);
     if (viewName !== 'settings') setSettingsMode('home');
-    if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially'].includes(viewName)) {
+    if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(viewName)) {
       refreshLatestLoanStatus();
     }
     if (window.innerWidth <= 768) setIsMenuOpen(false);
@@ -2335,7 +2483,9 @@ export default function App() {
                 </div>
                 <button className={`nav-item ${currentView === 'transactions' ? 'active' : ''}`} onClick={() => handleMobileNavClick('transactions')}>📋 Transactions</button>
                 <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => handleMobileNavClick('settings')}>⚙ Settings</button>
-                <button className={`nav-item ${currentView === 'admin' ? 'active' : ''}`} onClick={() => handleMobileNavClick('admin')}>🛡 Admin</button>
+                {isAdminUser && (
+                  <button className={`nav-item ${currentView === 'admin' ? 'active' : ''}`} onClick={() => handleMobileNavClick('admin')}>🛡 Admin</button>
+                )}
                 <button className="nav-item sidebar-logout-btn" onClick={handleLogout}>Logout</button>
               </nav>
             </aside>
@@ -2578,6 +2728,8 @@ export default function App() {
 
               {currentView === 'notifications' && (
                 <NotificationsView
+                  isAdmin={isAdminUser}
+                  userNotifications={userNotifications}
                   pendingSignups={signupNotifications}
                   pendingCounts={adminPendingCounts}
                   onOpenAdmin={handleOpenAdmin}
@@ -2749,7 +2901,7 @@ export default function App() {
                 </div>
               )}
 
-              {currentView === 'admin' && (
+              {currentView === 'admin' && isAdminUser && (
                 <AdminView
                   onUserVerified={handleUserVerified}
                   onLoanReviewed={handleLoanReviewed}
