@@ -7,6 +7,7 @@ const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-ba
 const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 const LOCAL_USERS_KEY = 'loan-app-local-users';
 const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
+const USER_READ_NOTIFICATIONS_KEY = 'loan-app-read-user-notifications';
 const ALLOW_LOCAL_AUTH_FALLBACK = String(process.env?.REACT_APP_ALLOW_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
 const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.REACT_APP_ADMIN_EMAIL || 'austineouma905@gmail.com')
   .split(',')
@@ -708,6 +709,23 @@ const writeStoredArray = (key, records) => {
   } catch {}
 };
 
+const readStoredObject = (key) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {};
+    const stored = JSON.parse(window.localStorage.getItem(key) || '{}');
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeStoredObject = (key, record) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(key, JSON.stringify(record));
+  } catch {}
+};
+
 const readStoredSignupNotifications = () => readStoredArray(SIGNUP_NOTIFICATIONS_KEY);
 
 const writeStoredSignupNotifications = (notifications) => {
@@ -729,6 +747,22 @@ const readStoredResetCodes = () => readStoredArray(LOCAL_RESET_CODES_KEY);
 
 const writeStoredResetCodes = (codes) => {
   writeStoredArray(LOCAL_RESET_CODES_KEY, codes);
+};
+
+const getNotificationReadAccountKey = (userId, email) => (
+  String(userId || normalizeEmail(email) || 'guest')
+);
+
+const readStoredUserNotificationKeys = (userId, email) => {
+  const storage = readStoredObject(USER_READ_NOTIFICATIONS_KEY);
+  const keys = storage[getNotificationReadAccountKey(userId, email)];
+  return Array.isArray(keys) ? keys : [];
+};
+
+const writeStoredUserNotificationKeys = (userId, email, keys) => {
+  const storage = readStoredObject(USER_READ_NOTIFICATIONS_KEY);
+  storage[getNotificationReadAccountKey(userId, email)] = Array.from(new Set(keys)).slice(-100);
+  writeStoredObject(USER_READ_NOTIFICATIONS_KEY, storage);
 };
 
 const createLocalUserId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -804,6 +838,7 @@ const buildUserNotifications = (records = [], loanBalance = 0) => {
           ? `Your loan request for ${formatKes(amount)} has been approved.`
           : 'Your loan request has been approved.',
         tone: 'success',
+        kind: 'loan-decision',
         date: dateValue,
         amount
       });
@@ -816,6 +851,7 @@ const buildUserNotifications = (records = [], loanBalance = 0) => {
         title: `${loanType} rejected`,
         message: failureReason || 'Your loan request was not approved.',
         tone: 'danger',
+        kind: 'loan-decision',
         date: dateValue,
         amount
       });
@@ -828,6 +864,7 @@ const buildUserNotifications = (records = [], loanBalance = 0) => {
         title: 'Repayment recorded',
         message: `A repayment of ${formatKes(Math.abs(amount))} was posted to your account.`,
         tone: 'info',
+        kind: 'account-activity',
         date: dateValue,
         amount
       });
@@ -933,6 +970,7 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   const loanType = getLoanValue(latestLoan, ['loan_type', 'loanType'], 'Loan Account');
   const loanAmount = getLoanValue(latestLoan, ['amount', 'loan_amount'], loanBalance);
   const dateApplied = getLoanValue(latestLoan, ['date_applied', 'createdAt', 'created_at', 'date']);
+  const nationalIdNumber = getLoanValue(latestLoan, ['national_id_number', 'nationalIdNumber'], 'Not available');
   const paymentMode = getLoanValue(latestLoan, ['payment_mode', 'paymentMode'], 'Not available');
   const accountNumber = getLoanValue(latestLoan, ['account_number', 'accountNumber'], 'Not available');
 
@@ -978,6 +1016,10 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
                   <strong>{formatLoanDate(dateApplied)}</strong>
                 </div>
                 <div className="loan-status-detail">
+                  <span>ID Number</span>
+                  <strong>{nationalIdNumber}</strong>
+                </div>
+                <div className="loan-status-detail">
                   <span>Payment Mode</span>
                   <strong>{paymentMode}</strong>
                 </div>
@@ -1004,8 +1046,9 @@ function NotificationsView({
   onOpenAdmin
 }) {
   if (!isAdmin) {
-    const recentNotifications = userNotifications.slice(0, 8);
-    const totalCount = recentNotifications.length;
+    const loanDecisionNotifications = userNotifications.filter((item) => item.kind === 'loan-decision').slice(0, 8);
+    const accountActivityNotifications = userNotifications.filter((item) => item.kind !== 'loan-decision').slice(0, 6);
+    const totalCount = loanDecisionNotifications.length + accountActivityNotifications.length;
 
     return (
       <div className="view-fade-in notifications-view">
@@ -1020,18 +1063,39 @@ function NotificationsView({
         </div>
 
         <div className="notification-card-grid">
-          <section className="notification-card" style={{ gridColumn: '1 / -1' }}>
+          <section className="notification-card">
             <div className="notification-card-top">
-              <ion-icon name="notifications-outline"></ion-icon>
-              <span>{totalCount}</span>
+              <ion-icon name="cash-outline"></ion-icon>
+              <span>{loanDecisionNotifications.length}</span>
             </div>
-            <h3>Account Activity</h3>
-            {recentNotifications.length === 0 ? (
-              <p>No loan approvals, rejections, or repayment updates yet.</p>
+            <h3>Loan Decisions</h3>
+            {loanDecisionNotifications.length === 0 ? (
+              <p>No loan approvals or rejections yet.</p>
             ) : (
               <div className="notification-list">
-                {recentNotifications.map((item) => (
-                  <div className="notification-list-item" key={item.key}>
+                {loanDecisionNotifications.map((item) => (
+                  <div className={`notification-list-item tone-${item.tone}`} key={item.key}>
+                    <strong>{item.title}</strong>
+                    <span>{item.message}</span>
+                    <span>{formatLoanDate(item.date)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="notification-card">
+            <div className="notification-card-top">
+              <ion-icon name="receipt-outline"></ion-icon>
+              <span>{accountActivityNotifications.length}</span>
+            </div>
+            <h3>Account Activity</h3>
+            {accountActivityNotifications.length === 0 ? (
+              <p>No repayment updates yet.</p>
+            ) : (
+              <div className="notification-list">
+                {accountActivityNotifications.map((item) => (
+                  <div className={`notification-list-item tone-${item.tone}`} key={item.key}>
                     <strong>{item.title}</strong>
                     <span>{item.message}</span>
                     <span>{formatLoanDate(item.date)}</span>
@@ -1120,6 +1184,9 @@ function AdminView({
   const [error, setError] = useState('');
   const [adminFeedback, setAdminFeedback] = useState({ message: '', type: '' });
   const [actionLoadingKey, setActionLoadingKey] = useState('');
+  const [recentlyReviewedLoans, setRecentlyReviewedLoans] = useState({});
+  const recentlyReviewedLoanTimersRef = useRef({});
+  const adminFeedbackTimerRef = useRef(null);
   const BASE_URL = API_BASE_URL;
 
   useEffect(() => {
@@ -1140,6 +1207,40 @@ function AdminView({
       return !analyticsPendingLoans.some((pendingLoan) => String(getLoanValue(pendingLoan, ['id', 'loanId', 'loan_id'], '')) === loanId);
     })
   ];
+  const visiblePendingLoanRequests = [
+    ...pendingLoanRequests,
+    ...Object.values(recentlyReviewedLoans)
+      .map((reviewedLoan) => reviewedLoan.loan)
+      .filter((reviewedLoan) => {
+        const reviewedLoanId = String(getLoanValue(reviewedLoan, ['id', 'loanId', 'loan_id'], ''));
+        return !pendingLoanRequests.some((pendingLoan) => (
+          String(getLoanValue(pendingLoan, ['id', 'loanId', 'loan_id'], '')) === reviewedLoanId
+        ));
+      })
+  ];
+
+  useEffect(() => () => {
+    Object.values(recentlyReviewedLoanTimersRef.current).forEach(clearTimeout);
+    clearTimeout(adminFeedbackTimerRef.current);
+  }, []);
+
+  const clearAdminFeedback = () => {
+    clearTimeout(adminFeedbackTimerRef.current);
+    adminFeedbackTimerRef.current = null;
+    setAdminFeedback({ message: '', type: '' });
+  };
+
+  const showAdminFeedback = (feedback, autoDismissMs = 3000) => {
+    clearTimeout(adminFeedbackTimerRef.current);
+    setAdminFeedback(feedback);
+
+    if (autoDismissMs) {
+      adminFeedbackTimerRef.current = setTimeout(() => {
+        setAdminFeedback({ message: '', type: '' });
+        adminFeedbackTimerRef.current = null;
+      }, autoDismissMs);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1232,12 +1333,12 @@ function AdminView({
       };
 
       onUserVerified(verifiedUser);
-      setAdminFeedback({ message: 'Local user verified successfully.', type: 'success' });
+      showAdminFeedback({ message: 'Local user verified successfully.', type: 'success' });
       return;
     }
 
     setActionLoadingKey(actionKey);
-    setAdminFeedback({ message: '', type: '' });
+    clearAdminFeedback();
 
     try {
       const payload = await runAdminMutation(
@@ -1259,10 +1360,10 @@ function AdminView({
         recordsReferToSameUser(existingUser, verifiedUser) ? { ...existingUser, ...verifiedUser } : existingUser
       )));
       onUserVerified(verifiedUser);
-      setAdminFeedback({ message: 'User verified successfully.', type: 'success' });
+      showAdminFeedback({ message: 'User verified successfully.', type: 'success' });
       await loadAdminData().catch(() => null);
     } catch (mutationError) {
-      setAdminFeedback({ message: mutationError.message || 'Could not verify user.', type: 'error' });
+      showAdminFeedback({ message: mutationError.message || 'Could not verify user.', type: 'error' }, 5000);
     } finally {
       setActionLoadingKey('');
     }
@@ -1271,15 +1372,16 @@ function AdminView({
   const handleLoanReview = async (loan, decision) => {
     const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
     const fallbackStatus = decision === 'approve' ? 'Disbursed' : 'Rejected';
+    const displayStatus = decision === 'approve' ? 'Approved' : 'Rejected';
     const actionKey = `loan-${decision}-${loanId}`;
 
     if (!loanId) {
-      setAdminFeedback({ message: 'Loan record is missing an ID.', type: 'error' });
+      showAdminFeedback({ message: 'Loan record is missing an ID.', type: 'error' }, 5000);
       return;
     }
 
     setActionLoadingKey(actionKey);
-    setAdminFeedback({ message: '', type: '' });
+    clearAdminFeedback();
 
     try {
       const payload = await runAdminMutation(
@@ -1289,6 +1391,7 @@ function AdminView({
       );
 
       const updatedLoan = { ...loan, ...(payload.loan || {}), status: payload.loan?.status || fallbackStatus };
+      const reviewedLoan = { ...updatedLoan, status: displayStatus };
       setLoans((currentLoans) => currentLoans.map((existingLoan) => (
         String(getLoanValue(existingLoan, ['id', 'loanId', 'loan_id'], '')) === String(loanId)
           ? { ...existingLoan, ...updatedLoan }
@@ -1301,10 +1404,27 @@ function AdminView({
         ))
       } : currentAnalytics);
       onLoanReviewed(updatedLoan, payload);
-      setAdminFeedback({ message: payload.message || `Loan ${fallbackStatus.toLowerCase()} successfully.`, type: 'success' });
-      await loadAdminData().catch(() => null);
+      setRecentlyReviewedLoans((currentLoans) => ({
+        ...currentLoans,
+        [loanId]: {
+          loan: reviewedLoan,
+          label: displayStatus,
+          type: decision === 'approve' ? 'success' : 'error'
+        }
+      }));
+      clearTimeout(recentlyReviewedLoanTimersRef.current[loanId]);
+      recentlyReviewedLoanTimersRef.current[loanId] = setTimeout(() => {
+        setRecentlyReviewedLoans((currentLoans) => {
+          const nextLoans = { ...currentLoans };
+          delete nextLoans[loanId];
+          return nextLoans;
+        });
+        delete recentlyReviewedLoanTimersRef.current[loanId];
+      }, 3000);
+      showAdminFeedback({ message: payload.message || `Loan ${displayStatus.toLowerCase()} successfully.`, type: 'success' });
+      loadAdminData().catch(() => null);
     } catch (mutationError) {
-      setAdminFeedback({ message: mutationError.message || `Could not ${decision} loan.`, type: 'error' });
+      showAdminFeedback({ message: mutationError.message || `Could not ${decision} loan.`, type: 'error' }, 5000);
     } finally {
       setActionLoadingKey('');
     }
@@ -1432,43 +1552,50 @@ function AdminView({
 
           <div className="admin-panel-block">
             <h3>Pending Loan Requests</h3>
-            {pendingLoanRequests.length === 0 ? (
+            {visiblePendingLoanRequests.length === 0 ? (
               <p className="loan-status-empty-text">No pending loan requests.</p>
             ) : (
               <div className="responsive-table-shell">
                 <table className="data-table">
                   <thead><tr>
-                    <th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
+                    <th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
                   </tr></thead>
-                  <tbody>{pendingLoanRequests.map((loan) => {
+                  <tbody>{visiblePendingLoanRequests.map((loan) => {
                     const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
+                    const reviewNotice = recentlyReviewedLoans[loanId];
+                    const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(loan) || 'Pending');
                     return (
                       <tr key={loanId || `${getUserDisplayName(loan)}-${getLoanValue(loan, ['loan_type', 'loanType'], '')}`}>
                         <td>{getUserDisplayName(loan)}</td>
+                        <td>{getLoanValue(loan, ['national_id_number', 'nationalIdNumber'], '-')}</td>
                         <td>{getLoanValue(loan, ['loan_type', 'loanType', 'transaction_type'], '-')}</td>
                         <td>{formatKes(loan.principal_amount || loan.amount)}</td>
                         <td>{formatKes(loan.repayment_amount || loan.amount)}</td>
                         <td>{formatLoanDate(loan.due_date)}</td>
-                        <td><span className={`table-status ${getTableStatusClass(getLoanStatusText(loan))}`}>{titleCaseStatus(getLoanStatusText(loan) || 'Pending')}</span></td>
+                        <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
                         <td>
-                          <div className="admin-action-row">
-                            <button
-                              type="button"
-                              className="admin-action-btn approve"
-                              onClick={() => handleLoanReview(loan, 'approve')}
-                              disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
-                            >
-                              {actionLoadingKey === `loan-approve-${loanId}` ? 'Approving...' : 'Approve'}
-                            </button>
-                            <button
-                              type="button"
-                              className="admin-action-btn reject"
-                              onClick={() => handleLoanReview(loan, 'reject')}
-                              disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
-                            >
-                              {actionLoadingKey === `loan-reject-${loanId}` ? 'Rejecting...' : 'Reject'}
-                            </button>
-                          </div>
+                          {reviewNotice ? (
+                            <span className={`admin-review-result ${reviewNotice.type}`}>{reviewNotice.label}</span>
+                          ) : (
+                            <div className="admin-action-row">
+                              <button
+                                type="button"
+                                className="admin-action-btn approve"
+                                onClick={() => handleLoanReview(loan, 'approve')}
+                                disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
+                              >
+                                {actionLoadingKey === `loan-approve-${loanId}` ? 'Approving...' : 'Approve'}
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-action-btn reject"
+                                onClick={() => handleLoanReview(loan, 'reject')}
+                                disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
+                              >
+                                {actionLoadingKey === `loan-reject-${loanId}` ? 'Rejecting...' : 'Reject'}
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1518,44 +1645,51 @@ function AdminView({
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
-              <th>ID</th><th>User</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
+              <th>ID</th><th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
             </tr></thead>
-            <tbody>{loans.map(l => (
-              <tr key={l.id}>
-                <td>{l.id}</td>
-                <td>{getUserDisplayName(l)}</td>
-                <td>{l.transaction_type || l.loan_type}</td>
-                <td>{formatKes(Math.abs(Number(l.principal_amount || l.amount)))}</td>
-                <td>{formatKes(Math.abs(Number(l.repayment_amount || l.amount)))}</td>
-                <td>{l.receipt_number || l.account_number || '-'}</td>
-                <td><span className={`table-status ${getTableStatusClass(getLoanStatusText(l))}`}>{titleCaseStatus(getLoanStatusText(l) || 'Pending')}</span></td>
-                <td>{formatLoanDate(l.completed_at || l.date_applied)}</td>
-                <td>
-                  {isPendingLoanStatus(l) ? (
-                    <div className="admin-action-row">
-                      <button
-                        type="button"
-                        className="admin-action-btn approve"
-                        onClick={() => handleLoanReview(l, 'approve')}
-                        disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
-                      >
-                        {actionLoadingKey === `loan-approve-${l.id}` ? 'Approving...' : 'Approve'}
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-action-btn reject"
-                        onClick={() => handleLoanReview(l, 'reject')}
-                        disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
-                      >
-                        {actionLoadingKey === `loan-reject-${l.id}` ? 'Rejecting...' : 'Reject'}
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="admin-muted-text">Closed</span>
-                  )}
-                </td>
-              </tr>
-            ))}</tbody>
+            <tbody>{loans.map(l => {
+              const reviewNotice = recentlyReviewedLoans[l.id];
+              const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(l) || 'Pending');
+              return (
+                <tr key={l.id}>
+                  <td>{l.id}</td>
+                  <td>{getUserDisplayName(l)}</td>
+                  <td>{l.national_id_number || '-'}</td>
+                  <td>{l.transaction_type || l.loan_type}</td>
+                  <td>{formatKes(Math.abs(Number(l.principal_amount || l.amount)))}</td>
+                  <td>{formatKes(Math.abs(Number(l.repayment_amount || l.amount)))}</td>
+                  <td>{l.receipt_number || l.account_number || '-'}</td>
+                  <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                  <td>{formatLoanDate(l.completed_at || l.date_applied)}</td>
+                  <td>
+                    {reviewNotice ? (
+                      <span className={`admin-review-result ${reviewNotice.type}`}>{reviewNotice.label}</span>
+                    ) : isPendingLoanStatus(l) ? (
+                      <div className="admin-action-row">
+                        <button
+                          type="button"
+                          className="admin-action-btn approve"
+                          onClick={() => handleLoanReview(l, 'approve')}
+                          disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
+                        >
+                          {actionLoadingKey === `loan-approve-${l.id}` ? 'Approving...' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          className="admin-action-btn reject"
+                          onClick={() => handleLoanReview(l, 'reject')}
+                          disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
+                        >
+                          {actionLoadingKey === `loan-reject-${l.id}` ? 'Rejecting...' : 'Reject'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="admin-muted-text">Closed</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}</tbody>
           </table>
         </div>
       )}
@@ -1574,6 +1708,7 @@ export default function App() {
   const [localUsers, setLocalUsers] = useState(() => (ALLOW_LOCAL_AUTH_FALLBACK ? readStoredLocalUsers() : []));
   const [adminPendingCounts, setAdminPendingCounts] = useState({ users: 0, loans: 0 });
   const [adminInitialTab, setAdminInitialTab] = useState('overview');
+  const [notificationPanelMode, setNotificationPanelMode] = useState('user');
   const [navigationHistory, setNavigationHistory] = useState([]);
   
   // Settings sub-view states and toggles
@@ -1596,6 +1731,7 @@ export default function App() {
   const [customAmount, setCustomAmount] = useState('');
   const [repaymentAmount, setRepaymentAmount] = useState('');
   const [loanDurationMonths, setLoanDurationMonths] = useState(1);
+  const [nationalIdNumber, setNationalIdNumber] = useState('');
   const [loanRequestLoading, setLoanRequestLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [paymentMode, setPaymentMode] = useState('Mobile'); 
@@ -1603,6 +1739,7 @@ export default function App() {
   const [loanBalance, setLoanBalance] = useState(0);
   const [latestLoan, setLatestLoan] = useState(null);
   const [userNotifications, setUserNotifications] = useState([]);
+  const [readUserNotificationKeys, setReadUserNotificationKeys] = useState([]);
   const [loanStatusLoading, setLoanStatusLoading] = useState(false);
   const [loanStatusError, setLoanStatusError] = useState('');
 
@@ -1651,8 +1788,10 @@ export default function App() {
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
   const pendingSignupCount = Math.max(signupNotifications.length, adminPendingCounts.users || 0);
   const adminNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
-  const userNotificationCount = userNotifications.length;
-  const pendingNotificationCount = isAdminUser ? adminNotificationCount : userNotificationCount;
+  const readUserNotificationKeySet = new Set(readUserNotificationKeys);
+  const userNotificationCount = userNotifications.filter((item) => !readUserNotificationKeySet.has(item.key)).length;
+  const notificationIconMode = isAdminUser && currentView === 'admin' ? 'admin' : 'user';
+  const pendingNotificationCount = notificationIconMode === 'admin' ? adminNotificationCount : userNotificationCount;
 
   const pushNavigationState = useCallback((snapshot) => {
     const nextSnapshot = snapshot || {
@@ -1717,7 +1856,7 @@ export default function App() {
     });
   }, [restoreNavigationState]);
 
-  const triggerAlert = (message, type) => {
+  const triggerAlert = useCallback((message, type) => {
     if (notificationTimerRef.current) {
       clearTimeout(notificationTimerRef.current);
     }
@@ -1727,7 +1866,7 @@ export default function App() {
       setNotification({ message: '', type: '' });
       notificationTimerRef.current = null;
     }, 4500);
-  };
+  }, []);
 
   const saveLocalUsers = useCallback((updater) => {
     if (!ALLOW_LOCAL_AUTH_FALLBACK) return;
@@ -1867,7 +2006,8 @@ export default function App() {
       }
 
       if (transactionsResponse.ok) {
-        setUserNotifications(buildUserNotifications(records, resolvedBalance));
+        const nextNotifications = buildUserNotifications(records, resolvedBalance);
+        setUserNotifications(nextNotifications);
       } else {
         setUserNotifications([]);
       }
@@ -1903,6 +2043,29 @@ export default function App() {
       setCurrentView('dashboard_home');
     }
   }, [isLoggedIn, isAdminUser, currentView]);
+
+  const markUserNotificationsRead = useCallback((notifications = userNotifications) => {
+    const notificationKeys = notifications
+      .map((item) => item?.key)
+      .filter(Boolean);
+
+    if (notificationKeys.length === 0) return;
+
+    setReadUserNotificationKeys((currentKeys) => {
+      const nextKeys = Array.from(new Set([...currentKeys, ...notificationKeys]));
+      if (nextKeys.length === currentKeys.length) return currentKeys;
+
+      writeStoredUserNotificationKeys(userProfile.id, userProfile.email, nextKeys);
+      return nextKeys;
+    });
+  }, [userNotifications, userProfile.email, userProfile.id]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    if (currentView !== 'notifications' || notificationPanelMode !== 'user') return;
+
+    markUserNotificationsRead();
+  }, [currentView, isLoggedIn, markUserNotificationsRead, notificationPanelMode]);
 
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
@@ -2068,6 +2231,7 @@ export default function App() {
     setLoanBalance(0);
     setLatestLoan(null);
     setUserNotifications([]);
+    setReadUserNotificationKeys([]);
     setLoanStatusError('');
     setLoanStatusLoading(false);
     setUserProfile({ id: null, name: "Guest User", email: "", phone: "", loanId: "LNX-PENDING" });
@@ -2078,6 +2242,7 @@ export default function App() {
     setPassword('');
     setConfirmPassword('');
     setRepaymentAmount('');
+    setNationalIdNumber('');
     setLoanRequestLoading(false);
     triggerAlert('Logged out successfully.', 'logout');
   };
@@ -2136,6 +2301,7 @@ export default function App() {
     setLoanBalance(data.loanBalance || 0);
     setLatestLoan(loginLoan);
     setUserNotifications([]);
+    setReadUserNotificationKeys(readStoredUserNotificationKeys(profileId, data.email || cleanEmail));
     setLoanStatusError('');
     setUserProfile({
       id: profileId,
@@ -2404,6 +2570,7 @@ export default function App() {
     setAppliedAmount(defaultAmount);
     setCustomAmount(String(defaultAmount));
     setLoanDurationMonths(1);
+    setNationalIdNumber('');
     setDisbursementAccount('');
     navigateToView('apply_loan_form');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
@@ -2412,10 +2579,18 @@ export default function App() {
   const handleMobileNavClick = (viewName) => {
     if (viewName === 'admin' && !isAdminUser) return;
     if (viewName === 'admin') {
+      setNotificationPanelMode('admin');
       navigateToView('admin', { adminInitialTab: 'overview' });
     } else if (viewName === 'settings') {
       navigateToView('settings', { settingsMode: 'home' });
+    } else if (viewName === 'notifications') {
+      setNotificationPanelMode(notificationIconMode);
+      if (notificationIconMode === 'user') {
+        markUserNotificationsRead();
+      }
+      navigateToView(viewName);
     } else {
+      setNotificationPanelMode('user');
       navigateToView(viewName);
     }
     if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(viewName)) {
@@ -2429,9 +2604,15 @@ export default function App() {
     if (loanRequestLoading) return;
 
     const finalAmount = loanQuote.principal;
+    const cleanNationalIdNumber = nationalIdNumber.trim();
 
     if (!finalAmount || finalAmount <= 0) {
       triggerAlert('Please select or enter a valid loan amount.', 'logout');
+      return;
+    }
+
+    if (!cleanNationalIdNumber) {
+      triggerAlert('Please enter your ID number for verification.', 'logout');
       return;
     }
 
@@ -2453,6 +2634,7 @@ export default function App() {
           interestRate: loanQuote.annualRate,
           repaymentAmount: loanQuote.repaymentTotal,
           dueDate: loanQuote.dueDateIso,
+          nationalIdNumber: cleanNationalIdNumber,
           paymentMode: paymentMode,
           accountNumber: disbursementAccount,
           status: 'Pending Approval'
@@ -2471,6 +2653,7 @@ export default function App() {
           duration_months: loanQuote.months,
           interest_rate: loanQuote.annualRate,
           due_date: data.dueDate || loanQuote.dueDateIso,
+          national_id_number: data.nationalIdNumber || cleanNationalIdNumber,
           status: data.status || data.loanStatus || 'Pending Approval',
           date_applied: data.date_applied || data.dateApplied || new Date().toISOString(),
           payment_mode: paymentMode,
@@ -2487,6 +2670,7 @@ export default function App() {
           loans: (currentCounts.loans || 0) + 1
         }));
         triggerAlert(`Loan request of KES ${Number(finalAmount).toLocaleString()} sent for admin review.`, 'success');
+        setNationalIdNumber('');
         navigateToView('loan_status');
       } else {
         triggerAlert(data.message || 'Error processing loan request on backend server.', 'logout');
@@ -2811,6 +2995,19 @@ export default function App() {
                     </div>
 
                     <div className="input-group">
+                      <label>ID Number for Verification</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={nationalIdNumber}
+                        onChange={(e) => setNationalIdNumber(e.target.value)}
+                        placeholder="enter your national ID number"
+                        maxLength="50"
+                        required
+                      />
+                    </div>
+
+                    <div className="input-group">
                       <label>
                         {paymentMode === 'Mobile' ? 'Mobile Number to Receive Funds' : 'Bank Account Number'}
                       </label>
@@ -2846,7 +3043,7 @@ export default function App() {
 
               {currentView === 'notifications' && (
                 <NotificationsView
-                  isAdmin={isAdminUser}
+                  isAdmin={isAdminUser && notificationPanelMode === 'admin'}
                   userNotifications={userNotifications}
                   pendingSignups={signupNotifications}
                   pendingCounts={adminPendingCounts}
