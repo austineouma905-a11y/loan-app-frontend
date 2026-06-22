@@ -633,6 +633,20 @@ const recordsReferToSameUser = (first, second) => {
   return Boolean((firstId && secondId && firstId === secondId) || (firstEmail && secondEmail && firstEmail === secondEmail));
 };
 
+const recordMatchesEmail = (record, email) => {
+  const cleanEmail = normalizeEmail(email);
+  return Boolean(cleanEmail && getUserRecordEmail(record) === cleanEmail);
+};
+
+const removeUserFromPendingRecords = (records, userOrEmail) => {
+  const cleanEmail = typeof userOrEmail === 'string' ? normalizeEmail(userOrEmail) : getUserRecordEmail(userOrEmail);
+  return records.filter((record) => {
+    if (recordMatchesEmail(record, cleanEmail)) return false;
+    if (typeof userOrEmail !== 'string' && recordsReferToSameUser(record, userOrEmail)) return false;
+    return true;
+  });
+};
+
 const getUserDisplayName = (user) => {
   const directName = getLoanValue(user, ['name', 'full_name', 'fullName'], '');
   if (directName) return directName;
@@ -648,7 +662,9 @@ const isUserPendingVerification = (user) => {
   if (isNegativeValue(explicitVerification)) return true;
   if (isAffirmativeValue(explicitVerification)) return false;
   if (user.pendingVerification === false) return false;
-  if (user.source === 'local-signup') return true;
+  if (user.source === 'local-signup') {
+    return !statusIncludesAny(getUserStatusText(user), ['verified', 'approved', 'active']);
+  }
 
   return statusIncludesAny(getUserStatusText(user), ['pending', 'review', 'processing', 'progress', 'unverified', 'waiting', 'new']);
 };
@@ -1786,7 +1802,8 @@ export default function App() {
   const currentLoanBalance = Number(loanBalance) || 0;
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
-  const pendingSignupCount = Math.max(signupNotifications.length, adminPendingCounts.users || 0);
+  const pendingSignupNotifications = signupNotifications.filter(isUserPendingVerification);
+  const pendingSignupCount = Math.max(pendingSignupNotifications.length, adminPendingCounts.users || 0);
   const adminNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
   const readUserNotificationKeySet = new Set(readUserNotificationKeys);
   const userNotificationCount = userNotifications.filter((item) => !readUserNotificationKeySet.has(item.key)).length;
@@ -1887,6 +1904,33 @@ export default function App() {
     saveLocalUsers((currentUsers) => upsertLocalUser(currentUsers, user));
   }, [saveLocalUsers]);
 
+  const clearSignupNotificationForUser = useCallback((userOrEmail) => {
+    setSignupNotifications((currentNotifications) => {
+      const nextNotifications = removeUserFromPendingRecords(currentNotifications, userOrEmail);
+      writeStoredSignupNotifications(nextNotifications);
+      setAdminPendingCounts((currentCounts) => ({
+        ...currentCounts,
+        users: nextNotifications.filter(isUserPendingVerification).length
+      }));
+      return nextNotifications;
+    });
+  }, []);
+
+  const markLocalUserVerified = useCallback((userOrEmail) => {
+    if (!ALLOW_LOCAL_AUTH_FALLBACK) return;
+    const cleanEmail = typeof userOrEmail === 'string' ? normalizeEmail(userOrEmail) : getUserRecordEmail(userOrEmail);
+
+    saveLocalUsers((currentUsers) => currentUsers.map((user) => {
+      const sameUser = typeof userOrEmail === 'string'
+        ? recordMatchesEmail(user, cleanEmail)
+        : recordsReferToSameUser(user, userOrEmail);
+
+      return sameUser
+        ? { ...user, status: 'Verified', verified: true, is_verified: true, isVerified: true, pendingVerification: false }
+        : user;
+    }));
+  }, [saveLocalUsers]);
+
   const updateLocalUserRecord = useCallback((emailValue, updater) => {
     if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const cleanEmail = normalizeEmail(emailValue);
@@ -1930,21 +1974,9 @@ export default function App() {
   }, []);
 
   const handleUserVerified = useCallback((verifiedUser) => {
-    setSignupNotifications((currentNotifications) => {
-      const nextNotifications = currentNotifications.filter((item) => !recordsReferToSameUser(item, verifiedUser));
-      writeStoredSignupNotifications(nextNotifications);
-      return nextNotifications;
-    });
-    saveLocalUsers((currentUsers) => currentUsers.map((user) => (
-      recordsReferToSameUser(user, verifiedUser)
-        ? { ...user, ...verifiedUser, status: 'Verified', verified: true, is_verified: true, pendingVerification: false }
-        : user
-    )));
-    setAdminPendingCounts((currentCounts) => ({
-      ...currentCounts,
-      users: Math.max((currentCounts.users || 0) - 1, 0)
-    }));
-  }, [saveLocalUsers]);
+    clearSignupNotificationForUser(verifiedUser);
+    markLocalUserVerified(verifiedUser);
+  }, [clearSignupNotificationForUser, markLocalUserVerified]);
 
   const handleLoanReviewed = useCallback((updatedLoan, payload = {}) => {
     setAdminPendingCounts((currentCounts) => ({
@@ -2316,11 +2348,8 @@ export default function App() {
     }
 
     if (cleanEmail) {
-      setSignupNotifications((currentNotifications) => {
-        const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
-        writeStoredSignupNotifications(nextNotifications);
-        return nextNotifications;
-      });
+      clearSignupNotificationForUser(cleanEmail);
+      markLocalUserVerified(cleanEmail);
     }
 
     triggerAlert('Successfully logged in!', 'success');
@@ -2393,15 +2422,7 @@ export default function App() {
       });
       const data = await parseResponseBody(response);
       if (response.ok) {
-        setSignupNotifications((currentNotifications) => {
-          const nextNotifications = currentNotifications.filter((item) => getUserRecordEmail(item) !== cleanEmail);
-          writeStoredSignupNotifications(nextNotifications);
-          setAdminPendingCounts((currentCounts) => ({
-            ...currentCounts,
-            users: nextNotifications.length
-          }));
-          return nextNotifications;
-        });
+        clearSignupNotificationForUser(cleanEmail);
         setAuthMode('login');
         triggerAlert(data.message || 'Account created successfully. You can log in now.', 'success');
         resetSignupForm();
@@ -3045,7 +3066,7 @@ export default function App() {
                 <NotificationsView
                   isAdmin={isAdminUser && notificationPanelMode === 'admin'}
                   userNotifications={userNotifications}
-                  pendingSignups={signupNotifications}
+                  pendingSignups={pendingSignupNotifications}
                   pendingCounts={adminPendingCounts}
                   onOpenAdmin={handleOpenAdmin}
                 />
