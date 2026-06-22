@@ -2338,16 +2338,25 @@ export default function App() {
       phone: phone.trim(),
       password,
       loanId: createLocalLoanId(),
-      status: 'Verified',
-      is_verified: true,
-      verified: true,
-      pendingVerification: false,
+      status: 'Pending Verification',
+      is_verified: false,
+      verified: false,
+      pendingVerification: true,
       source: 'local-signup',
       localOnly: true,
       createdAt: new Date().toISOString()
     };
 
     saveLocalUser(localUser);
+    setSignupNotifications((currentNotifications) => {
+      const nextNotifications = upsertLocalUser(currentNotifications, localUser);
+      writeStoredSignupNotifications(nextNotifications);
+      setAdminPendingCounts((currentCounts) => ({
+        ...currentCounts,
+        users: nextNotifications.filter(isUserPendingVerification).length
+      }));
+      return nextNotifications;
+    });
     return localUser;
   };
 
@@ -2406,15 +2415,7 @@ export default function App() {
     }
 
     if (isUserPendingVerification(localUser)) {
-      const verifiedLocalUser = {
-        ...localUser,
-        status: 'Verified',
-        is_verified: true,
-        verified: true,
-        pendingVerification: false
-      };
-      saveLocalUser(verifiedLocalUser);
-      completeLogin(verifiedLocalUser, { cleanEmail, isLocal: true });
+      triggerAlert('Your account is waiting for admin verification before login.', 'logout');
       return true;
     }
 
@@ -2464,12 +2465,11 @@ export default function App() {
           email: cleanEmail,
           phone: cleanPhone,
           password,
-          status: 'Verified'
+          status: 'Pending Verification'
         })
       });
       const data = await parseResponseBody(response);
       if (response.ok) {
-        clearSignupNotificationForUser(cleanEmail);
         setAuthMode('login');
         triggerAlert(data.message || 'Account created successfully. You can log in now.', 'success');
         resetSignupForm();
@@ -2478,7 +2478,7 @@ export default function App() {
           createLocalSignupUser(cleanEmail);
           setAuthMode('login');
           resetSignupForm();
-          triggerAlert('Backend database is unavailable, so the account was saved locally. You can log in now.', 'success');
+          triggerAlert('Backend database is unavailable, so the account was saved locally for admin verification.', 'success');
           return;
         }
 
@@ -2489,7 +2489,7 @@ export default function App() {
         createLocalSignupUser(cleanEmail);
         setAuthMode('login');
         resetSignupForm();
-        triggerAlert('Cannot reach backend, so the account was saved locally. You can log in now.', 'success');
+        triggerAlert('Cannot reach backend, so the account was saved locally for admin verification.', 'success');
         return;
       }
 
@@ -2511,12 +2511,7 @@ export default function App() {
       });
       const data = await parseResponseBody(response);
       if (response.ok) {
-        completeLogin({
-          ...data,
-          status: data.status || 'Verified',
-          is_verified: true,
-          pendingVerification: false
-        }, { cleanEmail });
+        completeLogin(data, { cleanEmail });
       } else {
         if (ALLOW_LOCAL_AUTH_FALLBACK && tryLocalLogin(cleanEmail)) return;
         triggerAlert(data.message || 'Invalid username or password!', 'error-red');
