@@ -651,7 +651,11 @@ const getUserDisplayName = (user) => {
   const directName = getLoanValue(user, ['name', 'full_name', 'fullName'], '');
   if (directName) return directName;
 
-  return `${getLoanValue(user, ['first_name', 'firstName'], '')} ${getLoanValue(user, ['last_name', 'lastName'], '')}`.trim() || 'New user';
+  const joinedName = `${getLoanValue(user, ['first_name', 'firstName'], '')} ${getLoanValue(user, ['last_name', 'lastName'], '')}`.trim();
+  if (joinedName) return joinedName;
+
+  const emailName = getUserRecordEmail(user).split('@')[0];
+  return emailName || 'User';
 };
 
 const isUserPendingVerification = (user) => {
@@ -1270,7 +1274,8 @@ function AdminView({
     setLoading(true);
     setError('');
     try {
-      const headers = { 'x-admin-secret': secret };
+      const cleanSecret = String(secret || '').trim();
+      const headers = { 'x-admin-secret': cleanSecret };
       const [usersRes, loansRes, analyticsRes] = await Promise.all([
         fetch(`${BASE_URL}/api/admin/users`, { headers }),
         fetch(`${BASE_URL}/api/admin/loans`, { headers }),
@@ -1278,7 +1283,13 @@ function AdminView({
       ]);
 
       if (!usersRes.ok || !loansRes.ok || !analyticsRes.ok) {
-        throw new Error('Wrong admin password!');
+        const failedResponse = [usersRes, loansRes, analyticsRes].find((response) => !response.ok);
+        const failedPayload = await parseAdminResponse(failedResponse);
+        throw new Error(
+          failedResponse.status === 401
+            ? (failedPayload.message || 'Wrong admin password.')
+            : (failedPayload.message || `Admin dashboard failed to load (${failedResponse.status}).`)
+        );
       }
 
       const [usersData, loansData, analyticsData] = await Promise.all([
@@ -2317,6 +2328,8 @@ export default function App() {
 
   const completeLogin = (data, { cleanEmail, isLocal = false } = {}) => {
     const profileId = data.userId || data.id || data.user_id;
+    const profileEmail = normalizeEmail(data.email || cleanEmail);
+    const profileName = getUserDisplayName({ ...data, email: profileEmail });
     const loginLoan = data.latestLoan || data.loan || (data.loanStatus ? {
       status: data.loanStatus,
       amount: data.loanAmount || data.loanBalance || 0,
@@ -2337,8 +2350,8 @@ export default function App() {
     setLoanStatusError('');
     setUserProfile({
       id: profileId,
-      name: data.name || getUserDisplayName(data),
-      email: normalizeEmail(data.email || cleanEmail),
+      name: profileName,
+      email: profileEmail,
       phone: data.phone || '',
       loanId: data.loanId || data.loan_id || createLocalLoanId()
     });
