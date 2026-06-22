@@ -3,12 +3,29 @@ import axios from 'axios';
 import './App.css';
 
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
-const API_BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+const DEFAULT_API_BASE_URL = 'https://loan-app-backend-vg4d.onrender.com';
+const isLocalBrowserHost = () => {
+  if (typeof window === 'undefined') return false;
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname);
+};
+const getApiBaseUrl = () => {
+  const configuredUrl = String(process.env?.REACT_APP_API_BASE_URL || '').trim().replace(/\/$/, '');
+  const isPublicHost = typeof window !== 'undefined' && window.location.hostname && !isLocalBrowserHost();
+  const pointsToLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configuredUrl);
+
+  if (!configuredUrl || (isPublicHost && pointsToLocalhost)) {
+    return DEFAULT_API_BASE_URL;
+  }
+
+  return configuredUrl;
+};
+const API_BASE_URL = getApiBaseUrl();
 const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 const LOCAL_USERS_KEY = 'loan-app-local-users';
 const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
 const USER_READ_NOTIFICATIONS_KEY = 'loan-app-read-user-notifications';
-const ALLOW_LOCAL_AUTH_FALLBACK = String(process.env?.REACT_APP_ALLOW_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
+const ALLOW_LOCAL_AUTH_FALLBACK = isLocalBrowserHost()
+  && String(process.env?.REACT_APP_ALLOW_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
 const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.REACT_APP_ADMIN_EMAIL || 'austineouma905@gmail.com')
   .split(',')
   .map((email) => normalizeEmail(email))
@@ -486,7 +503,7 @@ function TransactionHistory({ userId }) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
+  const BASE_URL = API_BASE_URL;
 
   useEffect(() => {
     if (!userId) return;
@@ -623,6 +640,7 @@ const getUserStatusText = (user) => getLoanValue(user, USER_STATUS_KEYS, '');
 const getUserRecordId = (user) => getLoanValue(user, ['id', 'userId', 'user_id'], '');
 
 const getUserRecordEmail = (user) => normalizeEmail(getLoanValue(user, ['email'], ''));
+const getUserPhoneDisplay = (user) => getLoanValue(user, ['phone', 'phoneNumber', 'phone_number'], '-') || '-';
 
 const recordsReferToSameUser = (first, second) => {
   const firstId = String(getUserRecordId(first) || '');
@@ -648,14 +666,13 @@ const removeUserFromPendingRecords = (records, userOrEmail) => {
 };
 
 const getUserDisplayName = (user) => {
-  const directName = getLoanValue(user, ['name', 'full_name', 'fullName'], '');
+  const directName = String(getLoanValue(user, ['name', 'full_name', 'fullName'], '') || '').trim();
   if (directName) return directName;
 
   const joinedName = `${getLoanValue(user, ['first_name', 'firstName'], '')} ${getLoanValue(user, ['last_name', 'lastName'], '')}`.trim();
   if (joinedName) return joinedName;
 
-  const emailName = getUserRecordEmail(user).split('@')[0];
-  return emailName || 'User';
+  return 'User';
 };
 
 const isUserPendingVerification = (user) => {
@@ -1556,7 +1573,7 @@ function AdminView({
                       <tr key={userKey}>
                         <td>{getUserDisplayName(user)}</td>
                         <td>{getUserRecordEmail(user) || '-'}</td>
-                        <td>{getLoanValue(user, ['phone'], '-')}</td>
+                        <td>{getUserPhoneDisplay(user)}</td>
                         <td>{formatLoanDate(getLoanValue(user, ['createdAt', 'created_at', 'dateJoined', 'date_joined']))}</td>
                         <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(user))}`}>{getUserVerificationLabel(user)}</span></td>
                         <td>
@@ -1644,9 +1661,9 @@ function AdminView({
               <tr key={getUserRecordId(u) || getUserRecordEmail(u)}>
                 <td>{getUserRecordId(u) || '-'}</td>
                 <td>{getUserDisplayName(u)}</td>
-                <td>{u.email}</td>
-                <td>{u.phone}</td>
-                <td>{formatLoanDate(u.createdAt)}</td>
+                <td>{getUserRecordEmail(u) || '-'}</td>
+                <td>{getUserPhoneDisplay(u)}</td>
+                <td>{formatLoanDate(getLoanValue(u, ['createdAt', 'created_at', 'dateJoined', 'date_joined']))}</td>
                 <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(u))}`}>{getUserVerificationLabel(u)}</span></td>
                 <td>
                   {isUserPendingVerification(u) ? (
@@ -2153,8 +2170,7 @@ export default function App() {
     }
 
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/mpesa/stkpush`, {
+      const response = await axios.post(`${API_BASE_URL}/api/mpesa/stkpush`, {
         phoneNumber: formattedPhone, 
         amount: paymentAmount,
         userId: userProfile.id,
@@ -2171,8 +2187,7 @@ export default function App() {
         const poll = setInterval(async () => {
           attempts++;
           try {
-            const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-            const balRes = await fetch(`${BASE_URL}/api/balance/${userProfile.id}`);
+            const balRes = await fetch(`${API_BASE_URL}/api/balance/${userProfile.id}`);
             const balData = await balRes.json();
             if (balData.loanBalance !== loanBalance) {
               const updatedBalance = Number(balData.loanBalance || 0);
@@ -2216,8 +2231,7 @@ export default function App() {
       return;
     }
     try {
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/change-password`, {
+      const response = await axios.post(`${API_BASE_URL}/api/change-password`, {
         userId: userProfile.id,
         currentPassword,
         newPassword: password
@@ -2238,23 +2252,34 @@ export default function App() {
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     try {
+      const cleanFirstName = firstName.trim();
+      const cleanLastName = lastName.trim();
       const cleanEmail = normalizeEmail(email);
-      const BASE_URL = process.env?.REACT_APP_API_BASE_URL || 'https://loan-app-backend-vg4d.onrender.com';
-      const response = await axios.post(`${BASE_URL}/api/update-profile`, {
+      const cleanPhone = phone.trim();
+
+      if (!cleanFirstName || !cleanLastName || !cleanEmail || !cleanPhone) {
+        triggerAlert("All profile fields are required.", "error-red");
+        return;
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/api/update-profile`, {
         userId: userProfile.id,
-        firstName,
-        lastName,
+        firstName: cleanFirstName,
+        lastName: cleanLastName,
         email: cleanEmail,
-        phone
+        phone: cleanPhone
       });
       if (response.status === 200) {
         setUserProfile({
           ...userProfile,
-          name: `${firstName} ${lastName}`.trim(),
+          name: `${cleanFirstName} ${cleanLastName}`.trim(),
           email: cleanEmail,
-          phone: phone
+          phone: cleanPhone
         });
         setEmail(cleanEmail);
+        setFirstName(cleanFirstName);
+        setLastName(cleanLastName);
+        setPhone(cleanPhone);
         triggerAlert("Profile updated successfully!", "success");
         setSettingsMode('home');
       }
@@ -2399,6 +2424,15 @@ export default function App() {
 
   const handleSignUpSubmit = async () => {
     if (signupLoading) return;
+    const cleanFirstName = firstName.trim();
+    const cleanLastName = lastName.trim();
+    const cleanPhone = phone.trim();
+
+    if (!cleanFirstName || !cleanLastName || !cleanPhone) {
+      triggerAlert('Please enter your first name, last name, and phone number.', 'logout');
+      return;
+    }
+
     if (password.length < 8) {
       triggerAlert('Password must be at least 8 characters long!', 'logout');
       return;
@@ -2424,11 +2458,11 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          firstName,
-          lastName,
-          name: `${firstName} ${lastName}`.trim(),
+          firstName: cleanFirstName,
+          lastName: cleanLastName,
+          name: `${cleanFirstName} ${cleanLastName}`.trim(),
           email: cleanEmail,
-          phone,
+          phone: cleanPhone,
           password,
           status: 'Verified'
         })
@@ -2639,6 +2673,12 @@ export default function App() {
 
     const finalAmount = loanQuote.principal;
     const cleanNationalIdNumber = nationalIdNumber.trim();
+    const profileId = userProfile.id;
+
+    if (!profileId) {
+      triggerAlert('Please log in again before requesting a loan.', 'logout');
+      return;
+    }
 
     if (!finalAmount || finalAmount <= 0) {
       triggerAlert('Please select or enter a valid loan amount.', 'logout');
@@ -2661,7 +2701,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: userProfile.id,
+          userId: profileId,
           loanType: selectedLoan.name,
           amount: finalAmount,
           durationMonths: loanQuote.months,
@@ -2675,7 +2715,7 @@ export default function App() {
         })
       });
 
-      const data = await response.json();
+      const data = await parseResponseBody(response);
 
       if (response.ok) {
         const requestedLoan = data.loan || data.latestLoan || {
