@@ -1,4 +1,16 @@
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1107,12 +1119,16 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  width: 100%;
+  min-width: 0;
 }
 
 .loan-calculator-panel {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  width: 100%;
+  min-width: 0;
   padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -1140,7 +1156,10 @@ body {
 }
 
 .loan-range-input {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   accent-color: #f49e2f;
 }
 
@@ -1506,12 +1525,73 @@ body {
 }
 
 @media screen and (max-width: 700px) {
+  .main-content-window {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .view-fade-in {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .loan-application-panel {
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    align-items: stretch;
+  }
+
+  .loan-application-panel .loan-status-header-row {
+    align-items: center;
+    text-align: center;
+  }
+
+  .loan-calculator-panel {
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  .loan-amount-button-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+  }
+
+  .amount-selection-btn,
+  .duration-chip {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .loan-amount-button-group .amount-selection-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
   .calculator-control-grid {
     grid-template-columns: 1fr;
+    width: 100%;
+    min-width: 0;
   }
 
   .duration-chip-row {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .loan-quote-grid,
+  .repayment-impact-panel,
+  .admin-overview-grid {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .input-group,
+  .input-group input,
+  .input-group select {
+    width: 100%;
+    min-width: 0;
   }
 
   .admin-header-row {
