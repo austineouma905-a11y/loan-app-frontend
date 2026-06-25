@@ -434,7 +434,7 @@ function AuthView({
         </div>
         <div className="input-group">
           <label>Phone Number</label>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="enter phone number" required />
+          <input type="tel" inputMode="numeric" value={phone} onChange={(e) => setPhone(digitsOnly(e.target.value))} placeholder="enter phone number" required />
         </div>
         
         <div className="input-group">
@@ -556,7 +556,7 @@ function TransactionHistory({ userId }) {
                 );
 
                 return (
-                  <tr key={t.id}>
+                  <tr key={t.transaction_id || t.id}>
                     <td>{formatLoanDate(t.completed_at || t.date_applied)}</td>
                     <td>{type}</td>
                     <td className={Number(t.amount) < 0 ? 'amount-credit' : 'amount-debit'}>
@@ -709,6 +709,11 @@ const isPendingLoanStatus = (loanOrStatus) => (
   statusIncludesAny(getLoanStatusText(loanOrStatus), ['pending', 'review', 'processing', 'progress', 'request'])
 );
 
+const isRepaymentRecord = (record) => (
+  Number(getLoanValue(record, ['amount'], 0)) < 0
+  || normalizeStatusText(getLoanValue(record, ['transaction_type', 'transactionType', 'loan_type', 'loanType'], '')).includes('repayment')
+);
+
 const isApprovedLoanStatus = (loanOrStatus) => (
   statusIncludesAny(getLoanStatusText(loanOrStatus), ['approved', 'disbursed', 'active'])
 );
@@ -836,6 +841,10 @@ const formatKes = (amount) => {
     const safeAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
     return `KES ${safeAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
+
+const digitsOnly = (value = '') => String(value || '').replace(/\D/g, '');
+const isDigitsOnly = (value = '') => /^\d+$/.test(String(value || ''));
+const isValidKenyanNationalId = (value = '') => /^\d{8,9}$/.test(String(value || ''));
 
 const formatLoanDate = (dateValue) => {
   if (!dateValue) return 'Not available';
@@ -1215,6 +1224,7 @@ function AdminView({
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [users, setUsers] = useState([]);
   const [loans, setLoans] = useState([]);
+  const [repayments, setRepayments] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [activeTab, setActiveTab] = useState(initialTab || 'overview');
   const [loading, setLoading] = useState(false);
@@ -1293,9 +1303,10 @@ function AdminView({
     try {
       const cleanSecret = String(secret || '').trim();
       const headers = { 'x-admin-secret': cleanSecret };
-      const [usersRes, loansRes, analyticsRes] = await Promise.all([
+      const [usersRes, loansRes, repaymentsRes, analyticsRes] = await Promise.all([
         fetch(`${BASE_URL}/api/admin/users`, { headers }),
         fetch(`${BASE_URL}/api/admin/loans`, { headers }),
+        fetch(`${BASE_URL}/api/admin/repayments`, { headers }),
         fetch(`${BASE_URL}/api/admin/analytics`, { headers })
       ]);
 
@@ -1309,14 +1320,31 @@ function AdminView({
         );
       }
 
-      const [usersData, loansData, analyticsData] = await Promise.all([
+      const [usersData, loansData, repaymentsPayload, analyticsData] = await Promise.all([
         usersRes.json(),
         loansRes.json(),
+        repaymentsRes.ok ? repaymentsRes.json() : Promise.resolve({ repayments: null }),
         analyticsRes.json()
       ]);
+      const receivedLoans = loansData.loans || [];
+      const fallbackRepayments = receivedLoans
+        .filter(isRepaymentRecord)
+        .map((repayment) => ({
+          ...repayment,
+          amount: Math.abs(Number(repayment.amount || 0)),
+          created_at: repayment.created_at || repayment.date_applied,
+          transaction_type: repayment.transaction_type || 'Legacy Repayment'
+        }));
+      const receivedRepayments = Array.isArray(repaymentsPayload.repayments)
+        ? repaymentsPayload.repayments
+        : fallbackRepayments;
+      const separatedLoans = Array.isArray(repaymentsPayload.repayments)
+        ? receivedLoans
+        : receivedLoans.filter((loan) => !isRepaymentRecord(loan));
 
       setUsers(usersData.users || []);
-      setLoans(loansData.loans || []);
+      setLoans(separatedLoans);
+      setRepayments(receivedRepayments);
       setAnalytics(analyticsData);
     } catch (adminError) {
       setError(adminError.message || 'Cannot connect to server.');
@@ -1552,6 +1580,7 @@ function AdminView({
         <button className={`auth-submit-btn ${activeTab === 'overview' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('overview')}>Overview</button>
         <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({allUsers.length})</button>
         <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({loans.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'repayments' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('repayments')}>Repayments ({repayments.length})</button>
       </div>
 
       {activeTab === 'overview' && (
@@ -1731,6 +1760,31 @@ function AdminView({
                       <span className="admin-muted-text">Closed</span>
                     )}
                   </td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+      )}
+
+      {activeTab === 'repayments' && (
+        <div className="responsive-table-shell">
+          <table className="data-table">
+            <thead><tr>
+              <th>ID</th><th>User</th><th>Amount</th><th>Mode</th><th>Receipt</th><th>Provider Ref</th><th>Status</th><th>Date</th>
+            </tr></thead>
+            <tbody>{repayments.map((repayment) => {
+              const statusLabel = titleCaseStatus(repayment.status || 'Pending');
+              return (
+                <tr key={`${repayment.transaction_type || 'repayment'}-${repayment.id}`}>
+                  <td>{repayment.id}</td>
+                  <td>{getUserDisplayName(repayment)}</td>
+                  <td className="amount-credit">{formatKes(Math.abs(Number(repayment.amount || 0)))}</td>
+                  <td>{repayment.payment_mode || '-'}</td>
+                  <td>{repayment.receipt_number || repayment.account_number || '-'}</td>
+                  <td>{repayment.checkout_request_id || repayment.provider_request_id || '-'}</td>
+                  <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                  <td>{formatLoanDate(repayment.completed_at || repayment.created_at)}</td>
                 </tr>
               );
             })}</tbody>
@@ -2255,10 +2309,15 @@ export default function App() {
       const cleanFirstName = firstName.trim();
       const cleanLastName = lastName.trim();
       const cleanEmail = normalizeEmail(email);
-      const cleanPhone = phone.trim();
+      const cleanPhone = digitsOnly(phone);
 
       if (!cleanFirstName || !cleanLastName || !cleanEmail || !cleanPhone) {
         triggerAlert("All profile fields are required.", "error-red");
+        return;
+      }
+
+      if (!isDigitsOnly(cleanPhone)) {
+        triggerAlert("Phone number must contain numbers only.", "error-red");
         return;
       }
 
@@ -2328,6 +2387,7 @@ export default function App() {
     if (!ALLOW_LOCAL_AUTH_FALLBACK) return null;
     const localId = createLocalUserId();
     const name = `${firstName.trim()} ${lastName.trim()}`.trim();
+    const cleanPhone = digitsOnly(phone);
     const localUser = {
       id: localId,
       userId: localId,
@@ -2335,7 +2395,7 @@ export default function App() {
       lastName: lastName.trim(),
       name,
       email: cleanEmail,
-      phone: phone.trim(),
+      phone: cleanPhone,
       password,
       loanId: createLocalLoanId(),
       status: 'Verified',
@@ -2426,10 +2486,15 @@ export default function App() {
     if (signupLoading) return;
     const cleanFirstName = firstName.trim();
     const cleanLastName = lastName.trim();
-    const cleanPhone = phone.trim();
+    const cleanPhone = digitsOnly(phone);
 
     if (!cleanFirstName || !cleanLastName || !cleanPhone) {
       triggerAlert('Please enter your first name, last name, and phone number.', 'logout');
+      return;
+    }
+
+    if (!isDigitsOnly(cleanPhone)) {
+      triggerAlert('Phone number must contain numbers only.', 'logout');
       return;
     }
 
@@ -2446,6 +2511,7 @@ export default function App() {
     setSignupLoading(true);
     const cleanEmail = normalizeEmail(email);
     setEmail(cleanEmail);
+    setPhone(cleanPhone);
 
     if (findLocalUserByEmail(cleanEmail)) {
       triggerAlert('An account with this email already exists. Please log in or reset your password.', 'error-red');
@@ -2672,7 +2738,10 @@ export default function App() {
     if (loanRequestLoading) return;
 
     const finalAmount = loanQuote.principal;
-    const cleanNationalIdNumber = nationalIdNumber.trim();
+    const cleanNationalIdNumber = digitsOnly(nationalIdNumber).slice(0, 9);
+    const cleanDisbursementAccount = paymentMode === 'Mobile'
+      ? digitsOnly(disbursementAccount)
+      : disbursementAccount.trim();
     const profileId = userProfile.id;
 
     if (!profileId) {
@@ -2685,13 +2754,18 @@ export default function App() {
       return;
     }
 
-    if (!cleanNationalIdNumber) {
-      triggerAlert('Please enter your ID number for verification.', 'logout');
+    if (!isValidKenyanNationalId(cleanNationalIdNumber)) {
+      triggerAlert('ID number must contain exactly 8 or 9 digits.', 'logout');
       return;
     }
 
-    if (!disbursementAccount || disbursementAccount.trim() === '') {
+    if (!cleanDisbursementAccount) {
       triggerAlert('Please enter the account that should receive funds.', 'logout');
+      return;
+    }
+
+    if (paymentMode === 'Mobile' && !isDigitsOnly(cleanDisbursementAccount)) {
+      triggerAlert('Mobile number must contain numbers only.', 'logout');
       return;
     }
 
@@ -2710,7 +2784,7 @@ export default function App() {
           dueDate: loanQuote.dueDateIso,
           nationalIdNumber: cleanNationalIdNumber,
           paymentMode: paymentMode,
-          accountNumber: disbursementAccount,
+          accountNumber: cleanDisbursementAccount,
           status: 'Pending Approval'
         })
       });
@@ -2731,7 +2805,7 @@ export default function App() {
           status: data.status || data.loanStatus || 'Pending Approval',
           date_applied: data.date_applied || data.dateApplied || new Date().toISOString(),
           payment_mode: paymentMode,
-          account_number: disbursementAccount
+          account_number: cleanDisbursementAccount
         };
 
         if (isApprovedLoanStatus(requestedLoan)) {
@@ -3074,9 +3148,9 @@ export default function App() {
                         type="text"
                         inputMode="numeric"
                         value={nationalIdNumber}
-                        onChange={(e) => setNationalIdNumber(e.target.value)}
+                        onChange={(e) => setNationalIdNumber(digitsOnly(e.target.value).slice(0, 9))}
                         placeholder="enter your national ID number"
-                        maxLength="50"
+                        maxLength="9"
                         required
                       />
                     </div>
@@ -3089,7 +3163,7 @@ export default function App() {
                         type="text" 
                         className="disbursement-account-input" style={{ color: 'white' }}
                         value={disbursementAccount} 
-                        onChange={(e) => setDisbursementAccount(e.target.value)} 
+                        onChange={(e) => setDisbursementAccount(paymentMode === 'Mobile' ? digitsOnly(e.target.value) : e.target.value)} 
                         placeholder={paymentMode === 'Mobile' ? 'enter mobile number' : 'enter account number'} 
                         required 
                       />
@@ -3279,7 +3353,7 @@ export default function App() {
                       </div>
                       <div className="input-group">
                         <label>Phone Number</label>
-                        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required />
+                        <input type="tel" inputMode="numeric" value={phone} onChange={(e) => setPhone(digitsOnly(e.target.value))} required />
                       </div>
                       <div className="form-action-buttons">
                         <button type="button" className="auth-submit-btn cancel-btn" onClick={goBackOneStep}>Cancel</button>
