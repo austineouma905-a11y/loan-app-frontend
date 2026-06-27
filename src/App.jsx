@@ -1313,14 +1313,42 @@ function AdminView({
     if (loanStatusFilter === 'rejected') return isRejectedLoanStatus(loan);
     return true;
   };
-  const filteredUsers = allUsers.filter(recordMatchesAdminSearch);
-  const filteredPendingVerificationUsers = pendingVerificationUsers.filter(recordMatchesAdminSearch);
-  const filteredPendingLoanRequests = visiblePendingLoanRequests
-    .filter(recordMatchesAdminSearch)
-    .filter(matchesLoanStatusFilter);
-  const filteredLoans = loans
-    .filter(recordMatchesAdminSearch)
-    .filter(matchesLoanStatusFilter);
+  const sortByNumericUserId = (records) => [...records].sort((first, second) => {
+    const firstId = Number(getUserRecordId(first));
+    const secondId = Number(getUserRecordId(second));
+    const firstIsNumeric = Number.isFinite(firstId);
+    const secondIsNumeric = Number.isFinite(secondId);
+
+    if (firstIsNumeric && secondIsNumeric) return firstId - secondId;
+    if (firstIsNumeric) return -1;
+    if (secondIsNumeric) return 1;
+    return getUserDisplayName(first).localeCompare(getUserDisplayName(second));
+  });
+  const sortByNumericLoanId = (records) => [...records].sort((first, second) => {
+    const firstId = Number(getLoanValue(first, ['id', 'loanId', 'loan_id'], ''));
+    const secondId = Number(getLoanValue(second, ['id', 'loanId', 'loan_id'], ''));
+    const firstIsNumeric = Number.isFinite(firstId);
+    const secondIsNumeric = Number.isFinite(secondId);
+
+    if (firstIsNumeric && secondIsNumeric) return firstId - secondId;
+    if (firstIsNumeric) return -1;
+    if (secondIsNumeric) return 1;
+    return formatLoanDate(getLoanValue(first, ['date_applied', 'dateApplied'], '')).localeCompare(
+      formatLoanDate(getLoanValue(second, ['date_applied', 'dateApplied'], ''))
+    );
+  });
+  const filteredUsers = sortByNumericUserId(allUsers.filter(recordMatchesAdminSearch));
+  const filteredPendingVerificationUsers = sortByNumericUserId(pendingVerificationUsers.filter(recordMatchesAdminSearch));
+  const filteredPendingLoanRequests = sortByNumericLoanId(
+    visiblePendingLoanRequests
+      .filter(recordMatchesAdminSearch)
+      .filter(matchesLoanStatusFilter)
+  );
+  const filteredLoans = sortByNumericLoanId(
+    loans
+      .filter(recordMatchesAdminSearch)
+      .filter(matchesLoanStatusFilter)
+  );
   const filteredRepayments = repayments.filter(recordMatchesAdminSearch);
 
   useEffect(() => () => {
