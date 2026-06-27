@@ -875,6 +875,22 @@ body {
   box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.15);
 }
 
+.input-group input.input-invalid {
+  border-color: #f87171;
+  background-color: #ffe1e1;
+  color: #7f1d1d;
+}
+
+.field-helper {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.field-helper.error {
+  color: #fecaca;
+}
+
 .auth-submit-btn {
   background-color: rgb(219, 103, 9) !important;
   color: hsl(0, 0%, 100%);
@@ -1249,6 +1265,14 @@ body {
   text-transform: uppercase;
 }
 
+.clickable-table-row {
+  cursor: pointer;
+}
+
+.clickable-table-row:hover td {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .amount-credit { color: #67e8a2; font-weight: 800; }
 .amount-debit { color: #fca5a5; font-weight: 800; }
 
@@ -1434,6 +1458,25 @@ body {
   margin: 0;
 }
 
+.admin-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 240px);
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-filter-bar input,
+.admin-filter-bar select {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: #0d2137;
+  color: #ffffff;
+  outline: none;
+}
+
 .admin-panel-block {
   display: flex;
   flex-direction: column;
@@ -1524,6 +1567,147 @@ body {
   font-weight: 800;
 }
 
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(1, 12, 25, 0.78);
+}
+
+.admin-detail-modal {
+  width: min(880px, 100%);
+  max-height: min(86vh, 760px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: #0d2137;
+  color: #ffffff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.admin-modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.admin-modal-header h3,
+.admin-history-panel h4 {
+  margin: 0;
+  color: #ffffff;
+}
+
+.admin-modal-header p {
+  margin: 6px 0 0 0;
+  color: #b8c7d9;
+}
+
+.admin-modal-close {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: #172f4b;
+  color: #ffffff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.admin-detail-grid,
+.admin-history-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.admin-detail-grid div,
+.admin-modal-loan-card,
+.admin-history-panel {
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(4, 18, 32, 0.72);
+}
+
+.admin-detail-grid span,
+.admin-modal-loan-card span {
+  display: block;
+  margin-bottom: 6px;
+  color: #b8c7d9;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-detail-grid strong,
+.admin-modal-loan-card strong {
+  color: #ffffff;
+  word-break: break-word;
+}
+
+.admin-modal-loan-card p {
+  margin: 8px 0 0 0;
+  color: #dbeafe;
+}
+
+.admin-history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.admin-history-item span {
+  color: #b8c7d9;
+  font-size: 12px;
+}
+
+.skeleton-table-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-line {
+  display: block;
+  width: 100%;
+  min-height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.09), rgba(255,255,255,0.22), rgba(255,255,255,0.09));
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-table-row {
+  display: grid;
+  gap: 12px;
+  min-width: 720px;
+  padding: 14px 12px;
+  border-bottom: 1px solid rgba(231, 238, 248, 0.12);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 220% 0; }
+  100% { background-position: -220% 0; }
+}
+
 @media screen and (max-width: 700px) {
   .main-content-window {
     padding-left: 12px;
@@ -1597,6 +1781,10 @@ body {
   .admin-header-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .admin-filter-bar {
+    grid-template-columns: 1fr;
   }
 
   .notifications-header-row {

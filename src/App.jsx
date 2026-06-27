@@ -119,7 +119,8 @@ function AuthView({
   password, setPassword, confirmPassword, setConfirmPassword, 
   handleLoginSubmit, handleSignUpSubmit, handleForgotPasswordSubmit,
   handleVerifyOtpSubmit, handleResetPasswordSubmit,
-  signupLoading = false
+  signupLoading = false,
+  loginLoading = false
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -353,7 +354,7 @@ function AuthView({
         <form onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(); }} className="auth-form">
           <div className="input-group">
             <label>Email: </label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required disabled={loginLoading} />
           </div>
           
           <div className="input-group">
@@ -365,6 +366,7 @@ function AuthView({
                 onChange={(e) => setPassword(e.target.value)} 
                 placeholder="enter password" 
                 style={{ width: '100%', paddingRight: '40px' }}
+                disabled={loginLoading}
                 required 
               />
               <span 
@@ -406,7 +408,9 @@ function AuthView({
             </div>
           </div>
           
-          <button type="submit" className="auth-submit-btn">Login</button>
+          <button type="submit" className="auth-submit-btn" disabled={loginLoading}>
+            {loginLoading ? <LoadingSpinner label="Logging in..." /> : 'Login'}
+          </button>
         </form>
         <p className="auth-toggle-text">
           Don't have an account? <span onClick={() => setAuthMode('signup')} className="auth-link">Sign Up</span>
@@ -527,7 +531,7 @@ function TransactionHistory({ userId }) {
     <div className="view-fade-in transaction-history-view">
       <h2>Transaction History</h2>
       {loading ? (
-        <p className="loan-status-empty-text">Loading transactions...</p>
+        <TableSkeleton rows={6} columns={6} />
       ) : error ? (
         <div className="loan-status-error">{error}</div>
       ) : transactions.length === 0 ? (
@@ -845,6 +849,28 @@ const formatKes = (amount) => {
 const digitsOnly = (value = '') => String(value || '').replace(/\D/g, '');
 const isDigitsOnly = (value = '') => /^\d+$/.test(String(value || ''));
 const isValidKenyanNationalId = (value = '') => /^\d{8,9}$/.test(String(value || ''));
+const parseCurrencyInput = (value = '') => {
+  const numericValue = Number(digitsOnly(value));
+  return Number.isFinite(numericValue) ? numericValue : 0;
+};
+const formatCurrencyInput = (value = '') => {
+  const cleanValue = digitsOnly(value);
+  return cleanValue ? Number(cleanValue).toLocaleString() : '';
+};
+
+function TableSkeleton({ rows = 5, columns = 4 }) {
+  return (
+    <div className="responsive-table-shell skeleton-table-shell" aria-label="Loading records">
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <div key={rowIndex} className="skeleton-table-row" style={{ gridTemplateColumns: `repeat(${columns}, minmax(92px, 1fr))` }}>
+          {Array.from({ length: columns }).map((__, columnIndex) => (
+            <span key={columnIndex} className="skeleton-line"></span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const formatLoanDate = (dateValue) => {
   if (!dateValue) return 'Not available';
@@ -1232,6 +1258,9 @@ function AdminView({
   const [adminFeedback, setAdminFeedback] = useState({ message: '', type: '' });
   const [actionLoadingKey, setActionLoadingKey] = useState('');
   const [recentlyReviewedLoans, setRecentlyReviewedLoans] = useState({});
+  const [adminSearchTerm, setAdminSearchTerm] = useState('');
+  const [loanStatusFilter, setLoanStatusFilter] = useState('all');
+  const [detailModalRecord, setDetailModalRecord] = useState(null);
   const recentlyReviewedLoanTimersRef = useRef({});
   const adminFeedbackTimerRef = useRef(null);
   const BASE_URL = API_BASE_URL;
@@ -1265,6 +1294,34 @@ function AdminView({
         ));
       })
   ];
+  const normalizedAdminSearch = normalizeStatusText(adminSearchTerm);
+  const recordMatchesAdminSearch = (record) => {
+    if (!normalizedAdminSearch) return true;
+
+    return [
+      getUserDisplayName(record),
+      getUserRecordEmail(record),
+      getUserRecordId(record),
+      getLoanValue(record, ['user_id', 'userId'], ''),
+      getLoanValue(record, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '')
+    ].some((value) => normalizeStatusText(value).includes(normalizedAdminSearch));
+  };
+  const matchesLoanStatusFilter = (loan) => {
+    if (loanStatusFilter === 'all') return true;
+    if (loanStatusFilter === 'pending') return isPendingLoanStatus(loan);
+    if (loanStatusFilter === 'disbursed') return isApprovedLoanStatus(loan);
+    if (loanStatusFilter === 'rejected') return isRejectedLoanStatus(loan);
+    return true;
+  };
+  const filteredUsers = allUsers.filter(recordMatchesAdminSearch);
+  const filteredPendingVerificationUsers = pendingVerificationUsers.filter(recordMatchesAdminSearch);
+  const filteredPendingLoanRequests = visiblePendingLoanRequests
+    .filter(recordMatchesAdminSearch)
+    .filter(matchesLoanStatusFilter);
+  const filteredLoans = loans
+    .filter(recordMatchesAdminSearch)
+    .filter(matchesLoanStatusFilter);
+  const filteredRepayments = repayments.filter(recordMatchesAdminSearch);
 
   useEffect(() => () => {
     Object.values(recentlyReviewedLoanTimersRef.current).forEach(clearTimeout);
@@ -1502,6 +1559,54 @@ function AdminView({
     }
   };
 
+  const getRecordUserId = (record) => String(getLoanValue(record, ['user_id', 'userId'], getUserRecordId(record)) || '');
+  const getHistoryForRecord = (record) => {
+    const recordUserId = getRecordUserId(record);
+    const recordEmail = getUserRecordEmail(record);
+    const sameUser = (item) => {
+      const itemUserId = getRecordUserId(item);
+      return Boolean(
+        (recordUserId && itemUserId && recordUserId === itemUserId) ||
+        (recordEmail && getUserRecordEmail(item) === recordEmail)
+      );
+    };
+    const userLoans = loans.filter(sameUser);
+    const userRepayments = repayments.filter(sameUser);
+    const disbursedTotal = userLoans.reduce((sum, loan) => (
+      isApprovedLoanStatus(loan) ? sum + Math.abs(Number(loan.repayment_amount || loan.amount || 0)) : sum
+    ), 0);
+    const repaidTotal = userRepayments.reduce((sum, repayment) => (
+      statusIncludesAny(repayment.status, ['completed', 'paid'])
+        ? sum + Math.abs(Number(repayment.amount || 0))
+        : sum
+    ), 0);
+    const completedRepayments = userRepayments.filter((repayment) => statusIncludesAny(repayment.status, ['completed', 'paid'])).length;
+    const repaymentSuccessRate = userRepayments.length
+      ? Math.round((completedRepayments / userRepayments.length) * 100)
+      : 0;
+
+    return {
+      userLoans,
+      userRepayments,
+      totalLoansTaken: userLoans.filter(isApprovedLoanStatus).length,
+      repaymentSuccessRate,
+      activeBalance: Math.max(disbursedTotal - repaidTotal, 0)
+    };
+  };
+
+  const openDetailModal = (record, type) => {
+    setDetailModalRecord({ record, type });
+  };
+
+  const closeDetailModal = () => {
+    setDetailModalRecord(null);
+  };
+
+  const modalRecord = detailModalRecord?.record;
+  const modalHistory = modalRecord ? getHistoryForRecord(modalRecord) : null;
+  const modalLoanId = modalRecord ? getLoanValue(modalRecord, ['id', 'loanId', 'loan_id'], '') : '';
+  const modalReviewNotice = modalLoanId ? recentlyReviewedLoans[modalLoanId] : null;
+
   if (!isAuthenticated) return (
     <div style={{ maxWidth: '400px', margin: '100px auto', padding: '30px', background: '#0d2137', borderRadius: '12px' }}>
       <h2 style={{ color: '#f49e2f', textAlign: 'center' }}>Admin Access</h2>
@@ -1578,16 +1683,39 @@ function AdminView({
 
       <div className="admin-tab-row">
         <button className={`auth-submit-btn ${activeTab === 'overview' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('overview')}>Overview</button>
-        <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({allUsers.length})</button>
-        <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({loans.length})</button>
-        <button className={`auth-submit-btn ${activeTab === 'repayments' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('repayments')}>Repayments ({repayments.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({filteredUsers.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({filteredLoans.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'repayments' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('repayments')}>Repayments ({filteredRepayments.length})</button>
+      </div>
+
+      <div className="admin-filter-bar">
+        <div className="input-group admin-search-input">
+          <label>Search Records</label>
+          <input
+            type="search"
+            value={adminSearchTerm}
+            onChange={(e) => setAdminSearchTerm(e.target.value)}
+            placeholder="Name, email, or ID number"
+          />
+        </div>
+        <div className="input-group admin-status-filter">
+          <label>Loan Status</label>
+          <select value={loanStatusFilter} onChange={(e) => setLoanStatusFilter(e.target.value)}>
+            <option value="all">All loans</option>
+            <option value="pending">Pending</option>
+            <option value="disbursed">Disbursed</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
       </div>
 
       {activeTab === 'overview' && (
         <div className="admin-panel-stack">
           <div className="admin-panel-block">
             <h3>Pending User Verifications</h3>
-            {pendingVerificationUsers.length === 0 ? (
+            {loading ? (
+              <TableSkeleton rows={4} columns={6} />
+            ) : filteredPendingVerificationUsers.length === 0 ? (
               <p className="loan-status-empty-text">No pending user verifications.</p>
             ) : (
               <div className="responsive-table-shell">
@@ -1595,11 +1723,11 @@ function AdminView({
                   <thead><tr>
                     <th>User</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
                   </tr></thead>
-                  <tbody>{pendingVerificationUsers.map((user) => {
+                  <tbody>{filteredPendingVerificationUsers.map((user) => {
                     const userKey = getUserRecordId(user) || getUserRecordEmail(user);
                     const actionKey = `user-${userKey}`;
                     return (
-                      <tr key={userKey}>
+                      <tr key={userKey} className="clickable-table-row" onClick={() => openDetailModal(user, 'user')}>
                         <td>{getUserDisplayName(user)}</td>
                         <td>{getUserRecordEmail(user) || '-'}</td>
                         <td>{getUserPhoneDisplay(user)}</td>
@@ -1609,7 +1737,7 @@ function AdminView({
                           <button
                             type="button"
                             className="admin-action-btn approve"
-                            onClick={() => handleVerifyUser(user)}
+                            onClick={(event) => { event.stopPropagation(); handleVerifyUser(user); }}
                             disabled={actionLoadingKey === actionKey}
                           >
                             {actionLoadingKey === actionKey ? 'Verifying...' : 'Verify'}
@@ -1625,7 +1753,9 @@ function AdminView({
 
           <div className="admin-panel-block">
             <h3>Pending Loan Requests</h3>
-            {visiblePendingLoanRequests.length === 0 ? (
+            {loading ? (
+              <TableSkeleton rows={5} columns={8} />
+            ) : filteredPendingLoanRequests.length === 0 ? (
               <p className="loan-status-empty-text">No pending loan requests.</p>
             ) : (
               <div className="responsive-table-shell">
@@ -1633,12 +1763,12 @@ function AdminView({
                   <thead><tr>
                     <th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
                   </tr></thead>
-                  <tbody>{visiblePendingLoanRequests.map((loan) => {
+                  <tbody>{filteredPendingLoanRequests.map((loan) => {
                     const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
                     const reviewNotice = recentlyReviewedLoans[loanId];
                     const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(loan) || 'Pending');
                     return (
-                      <tr key={loanId || `${getUserDisplayName(loan)}-${getLoanValue(loan, ['loan_type', 'loanType'], '')}`}>
+                      <tr key={loanId || `${getUserDisplayName(loan)}-${getLoanValue(loan, ['loan_type', 'loanType'], '')}`} className="clickable-table-row" onClick={() => openDetailModal(loan, 'loan')}>
                         <td>{getUserDisplayName(loan)}</td>
                         <td>{getLoanValue(loan, ['national_id_number', 'nationalIdNumber'], '-')}</td>
                         <td>{getLoanValue(loan, ['loan_type', 'loanType', 'transaction_type'], '-')}</td>
@@ -1654,7 +1784,7 @@ function AdminView({
                               <button
                                 type="button"
                                 className="admin-action-btn approve"
-                                onClick={() => handleLoanReview(loan, 'approve')}
+                                onClick={(event) => { event.stopPropagation(); handleLoanReview(loan, 'approve'); }}
                                 disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
                               >
                                 {actionLoadingKey === `loan-approve-${loanId}` ? 'Approving...' : 'Approve'}
@@ -1662,7 +1792,7 @@ function AdminView({
                               <button
                                 type="button"
                                 className="admin-action-btn reject"
-                                onClick={() => handleLoanReview(loan, 'reject')}
+                                onClick={(event) => { event.stopPropagation(); handleLoanReview(loan, 'reject'); }}
                                 disabled={actionLoadingKey === `loan-approve-${loanId}` || actionLoadingKey === `loan-reject-${loanId}`}
                               >
                                 {actionLoadingKey === `loan-reject-${loanId}` ? 'Rejecting...' : 'Reject'}
@@ -1681,50 +1811,57 @@ function AdminView({
       )}
 
       {activeTab === 'users' && (
-        <div className="responsive-table-shell">
-          <table className="data-table">
-            <thead><tr>
-              <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
-            </tr></thead>
-            <tbody>{allUsers.map(u => (
-              <tr key={getUserRecordId(u) || getUserRecordEmail(u)}>
-                <td>{getUserRecordId(u) || '-'}</td>
-                <td>{getUserDisplayName(u)}</td>
-                <td>{getUserRecordEmail(u) || '-'}</td>
-                <td>{getUserPhoneDisplay(u)}</td>
-                <td>{formatLoanDate(getLoanValue(u, ['createdAt', 'created_at', 'dateJoined', 'date_joined']))}</td>
-                <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(u))}`}>{getUserVerificationLabel(u)}</span></td>
-                <td>
-                  {isUserPendingVerification(u) ? (
-                    <button
-                      type="button"
-                      className="admin-action-btn approve"
-                      onClick={() => handleVerifyUser(u)}
-                      disabled={actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}`}
-                    >
-                      {actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}` ? 'Verifying...' : 'Verify'}
-                    </button>
-                  ) : (
-                    <span className="admin-muted-text">Verified</span>
-                  )}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
+        loading ? (
+          <TableSkeleton rows={6} columns={7} />
+        ) : (
+          <div className="responsive-table-shell">
+            <table className="data-table">
+              <thead><tr>
+                <th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Status</th><th>Action</th>
+              </tr></thead>
+              <tbody>{filteredUsers.map(u => (
+                <tr key={getUserRecordId(u) || getUserRecordEmail(u)} className="clickable-table-row" onClick={() => openDetailModal(u, 'user')}>
+                  <td>{getUserRecordId(u) || '-'}</td>
+                  <td>{getUserDisplayName(u)}</td>
+                  <td>{getUserRecordEmail(u) || '-'}</td>
+                  <td>{getUserPhoneDisplay(u)}</td>
+                  <td>{formatLoanDate(getLoanValue(u, ['createdAt', 'created_at', 'dateJoined', 'date_joined']))}</td>
+                  <td><span className={`table-status ${getTableStatusClass(getUserVerificationLabel(u))}`}>{getUserVerificationLabel(u)}</span></td>
+                  <td>
+                    {isUserPendingVerification(u) ? (
+                      <button
+                        type="button"
+                        className="admin-action-btn approve"
+                        onClick={(event) => { event.stopPropagation(); handleVerifyUser(u); }}
+                        disabled={actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}`}
+                      >
+                        {actionLoadingKey === `user-${getUserRecordId(u) || getUserRecordEmail(u)}` ? 'Verifying...' : 'Verify'}
+                      </button>
+                    ) : (
+                      <span className="admin-muted-text">Verified</span>
+                    )}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )
       )}
 
       {activeTab === 'loans' && (
+        loading ? (
+          <TableSkeleton rows={7} columns={10} />
+        ) : (
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
               <th>ID</th><th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
             </tr></thead>
-            <tbody>{loans.map(l => {
+            <tbody>{filteredLoans.map(l => {
               const reviewNotice = recentlyReviewedLoans[l.id];
               const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(l) || 'Pending');
               return (
-                <tr key={l.id}>
+                <tr key={l.id} className="clickable-table-row" onClick={() => openDetailModal(l, 'loan')}>
                   <td>{l.id}</td>
                   <td>{getUserDisplayName(l)}</td>
                   <td>{l.national_id_number || '-'}</td>
@@ -1742,7 +1879,7 @@ function AdminView({
                         <button
                           type="button"
                           className="admin-action-btn approve"
-                          onClick={() => handleLoanReview(l, 'approve')}
+                          onClick={(event) => { event.stopPropagation(); handleLoanReview(l, 'approve'); }}
                           disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
                         >
                           {actionLoadingKey === `loan-approve-${l.id}` ? 'Approving...' : 'Approve'}
@@ -1750,7 +1887,7 @@ function AdminView({
                         <button
                           type="button"
                           className="admin-action-btn reject"
-                          onClick={() => handleLoanReview(l, 'reject')}
+                          onClick={(event) => { event.stopPropagation(); handleLoanReview(l, 'reject'); }}
                           disabled={actionLoadingKey === `loan-approve-${l.id}` || actionLoadingKey === `loan-reject-${l.id}`}
                         >
                           {actionLoadingKey === `loan-reject-${l.id}` ? 'Rejecting...' : 'Reject'}
@@ -1765,18 +1902,22 @@ function AdminView({
             })}</tbody>
           </table>
         </div>
+        )
       )}
 
       {activeTab === 'repayments' && (
+        loading ? (
+          <TableSkeleton rows={7} columns={8} />
+        ) : (
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
               <th>ID</th><th>User</th><th>Amount</th><th>Mode</th><th>Receipt</th><th>Provider Ref</th><th>Status</th><th>Date</th>
             </tr></thead>
-            <tbody>{repayments.map((repayment) => {
+            <tbody>{filteredRepayments.map((repayment) => {
               const statusLabel = titleCaseStatus(repayment.status || 'Pending');
               return (
-                <tr key={`${repayment.transaction_type || 'repayment'}-${repayment.id}`}>
+                <tr key={`${repayment.transaction_type || 'repayment'}-${repayment.id}`} className="clickable-table-row" onClick={() => openDetailModal(repayment, 'repayment')}>
                   <td>{repayment.id}</td>
                   <td>{getUserDisplayName(repayment)}</td>
                   <td className="amount-credit">{formatKes(Math.abs(Number(repayment.amount || 0)))}</td>
@@ -1789,6 +1930,83 @@ function AdminView({
               );
             })}</tbody>
           </table>
+        </div>
+        )
+      )}
+
+      {modalRecord && modalHistory && (
+        <div className="admin-modal-backdrop" role="presentation" onClick={closeDetailModal}>
+          <div className="admin-detail-modal" role="dialog" aria-modal="true" aria-labelledby="admin-detail-title" onClick={(event) => event.stopPropagation()}>
+            <div className="admin-modal-header">
+              <div>
+                <h3 id="admin-detail-title">{getUserDisplayName(modalRecord)}</h3>
+                <p>{getUserRecordEmail(modalRecord) || 'No email on record'}</p>
+              </div>
+              <button type="button" className="admin-modal-close" onClick={closeDetailModal} aria-label="Close details">x</button>
+            </div>
+
+            <div className="admin-detail-grid">
+              <div><span>User ID</span><strong>{getRecordUserId(modalRecord) || '-'}</strong></div>
+              <div><span>ID Number</span><strong>{getLoanValue(modalRecord, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '-')}</strong></div>
+              <div><span>Total Loans Taken</span><strong>{modalHistory.totalLoansTaken}</strong></div>
+              <div><span>Repayment Success</span><strong>{modalHistory.repaymentSuccessRate}%</strong></div>
+              <div><span>Active Balance</span><strong>{formatKes(modalHistory.activeBalance)}</strong></div>
+              <div><span>Phone</span><strong>{getUserPhoneDisplay(modalRecord)}</strong></div>
+            </div>
+
+            {detailModalRecord.type === 'loan' && (
+              <div className="admin-modal-loan-card">
+                <span>Selected loan</span>
+                <strong>{getLoanValue(modalRecord, ['loan_type', 'loanType', 'transaction_type'], 'Loan')}</strong>
+                <p>{formatKes(getLoanValue(modalRecord, ['repayment_amount', 'amount'], 0))} &middot; {titleCaseStatus(getLoanStatusText(modalRecord) || 'Pending')}</p>
+                {isPendingLoanStatus(modalRecord) && !modalReviewNotice && (
+                  <div className="admin-action-row">
+                    <button
+                      type="button"
+                      className="admin-action-btn approve"
+                      onClick={() => handleLoanReview(modalRecord, 'approve')}
+                      disabled={actionLoadingKey === `loan-approve-${modalLoanId}` || actionLoadingKey === `loan-reject-${modalLoanId}`}
+                    >
+                      {actionLoadingKey === `loan-approve-${modalLoanId}` ? 'Approving...' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-action-btn reject"
+                      onClick={() => handleLoanReview(modalRecord, 'reject')}
+                      disabled={actionLoadingKey === `loan-approve-${modalLoanId}` || actionLoadingKey === `loan-reject-${modalLoanId}`}
+                    >
+                      {actionLoadingKey === `loan-reject-${modalLoanId}` ? 'Rejecting...' : 'Reject'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="admin-history-columns">
+              <div className="admin-history-panel">
+                <h4>Loan History</h4>
+                {modalHistory.userLoans.length === 0 ? (
+                  <p className="admin-muted-text">No loan history.</p>
+                ) : modalHistory.userLoans.slice(0, 5).map((loan) => (
+                  <div key={`modal-loan-${loan.id}`} className="admin-history-item">
+                    <strong>{getLoanValue(loan, ['loan_type', 'transaction_type'], 'Loan')}</strong>
+                    <span>{formatKes(getLoanValue(loan, ['repayment_amount', 'amount'], 0))} &middot; {titleCaseStatus(getLoanStatusText(loan) || 'Pending')}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="admin-history-panel">
+                <h4>Repayment History</h4>
+                {modalHistory.userRepayments.length === 0 ? (
+                  <p className="admin-muted-text">No repayment history.</p>
+                ) : modalHistory.userRepayments.slice(0, 5).map((repayment) => (
+                  <div key={`modal-repayment-${repayment.transaction_type || 'repayment'}-${repayment.id}`} className="admin-history-item">
+                    <strong>{formatKes(Math.abs(Number(repayment.amount || 0)))}</strong>
+                    <span>{titleCaseStatus(repayment.status || 'Pending')} &middot; {formatLoanDate(repayment.completed_at || repayment.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1832,6 +2050,7 @@ export default function App() {
   const [nationalIdNumber, setNationalIdNumber] = useState('');
   const [loanRequestLoading, setLoanRequestLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
   const [paymentMode, setPaymentMode] = useState('Mobile'); 
   const [disbursementAccount, setDisbursementAccount] = useState('');
   const [loanBalance, setLoanBalance] = useState(0);
@@ -1876,14 +2095,16 @@ export default function App() {
   const loanAmountBounds = getLoanAmountBounds(selectedLoan);
   const selectedLoanAmountValue = selectedLoan
     ? (appliedAmount === 'custom'
-      ? parseFloat(customAmount)
+      ? parseCurrencyInput(customAmount)
       : parseFloat(appliedAmount || selectedLoan.amounts?.[0] || loanAmountBounds.min))
     : 0;
   const loanQuote = getLoanQuote(selectedLoanAmountValue, selectedLoan?.rate, loanDurationMonths);
-  const partialPaymentValue = parseFloat(repaymentAmount);
+  const partialPaymentValue = parseCurrencyInput(repaymentAmount);
   const currentLoanBalance = Number(loanBalance) || 0;
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
+  const hasNationalIdInput = nationalIdNumber.length > 0;
+  const isNationalIdReady = isValidKenyanNationalId(nationalIdNumber);
   const pendingSignupNotifications = signupNotifications.filter(isUserPendingVerification);
   const pendingSignupCount = Math.max(pendingSignupNotifications.length, adminPendingCounts.users || 0);
   const adminNotificationCount = pendingSignupCount + (adminPendingCounts.loans || 0);
@@ -2441,10 +2662,6 @@ export default function App() {
       loanId: data.loanId || data.loan_id || createLocalLoanId()
     });
 
-    if (!isLocal && profileId) {
-      refreshLatestLoanStatus(profileId);
-    }
-
     if (cleanEmail) {
       clearSignupNotificationForUser(cleanEmail);
       markLocalUserVerified(cleanEmail);
@@ -2566,8 +2783,11 @@ export default function App() {
   };
 
   const handleLoginSubmit = async () => {
+    if (loginLoading) return;
+
     const cleanEmail = normalizeEmail(email);
     setEmail(cleanEmail);
+    setLoginLoading(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/login`, {
@@ -2590,6 +2810,8 @@ export default function App() {
     } catch (error) {
       if (ALLOW_LOCAL_AUTH_FALLBACK && tryLocalLogin(cleanEmail)) return;
       triggerAlert('Cannot bridge connection to backend.', 'logout');
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -2705,7 +2927,8 @@ export default function App() {
     setCustomAmount(String(defaultAmount));
     setLoanDurationMonths(1);
     setNationalIdNumber('');
-    setDisbursementAccount('');
+    setPaymentMode('Mobile');
+    setDisbursementAccount(digitsOnly(userProfile.phone));
     navigateToView('apply_loan_form');
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   };
@@ -2751,6 +2974,11 @@ export default function App() {
 
     if (!finalAmount || finalAmount <= 0) {
       triggerAlert('Please select or enter a valid loan amount.', 'logout');
+      return;
+    }
+
+    if (finalAmount < loanAmountBounds.min || finalAmount > loanAmountBounds.max) {
+      triggerAlert(`Loan amount must be between KES ${loanAmountBounds.min.toLocaleString()} and KES ${loanAmountBounds.max.toLocaleString()}.`, 'logout');
       return;
     }
 
@@ -2902,6 +3130,7 @@ export default function App() {
               handleVerifyOtpSubmit={handleVerifyOtpSubmit}
               handleResetPasswordSubmit={handleResetPasswordSubmit}
               signupLoading={signupLoading}
+              loginLoading={loginLoading}
             />
           </div>
         ) : (
@@ -3083,12 +3312,10 @@ export default function App() {
                         <div className="input-group">
                           <label>Custom Amount</label>
                           <input
-                            type="number"
-                            value={customAmount}
-                            onChange={(e) => { setAppliedAmount('custom'); setCustomAmount(e.target.value); }}
-                            min={loanAmountBounds.min}
-                            max={loanAmountBounds.max}
-                            step={loanAmountBounds.step}
+                            type="text"
+                            inputMode="numeric"
+                            value={formatCurrencyInput(customAmount)}
+                            onChange={(e) => { setAppliedAmount('custom'); setCustomAmount(digitsOnly(e.target.value)); }}
                             placeholder="Enter amount"
                             required
                           />
@@ -3134,7 +3361,11 @@ export default function App() {
                       <label>Mode of Payment</label>
                       <select 
                         value={paymentMode} 
-                        onChange={(e) => { setPaymentMode(e.target.value); setDisbursementAccount(''); }}
+                        onChange={(e) => {
+                          const nextMode = e.target.value;
+                          setPaymentMode(nextMode);
+                          setDisbursementAccount(nextMode === 'Mobile' ? digitsOnly(userProfile.phone) : '');
+                        }}
                         style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #ccc', background: '#094a87', color: '#fff' }}
                       >
                         <option value="Mobile">Mobile Money</option>
@@ -3151,8 +3382,13 @@ export default function App() {
                         onChange={(e) => setNationalIdNumber(digitsOnly(e.target.value).slice(0, 9))}
                         placeholder="enter your national ID number"
                         maxLength="9"
+                        className={hasNationalIdInput && !isNationalIdReady ? 'input-invalid' : ''}
+                        aria-invalid={hasNationalIdInput && !isNationalIdReady}
                         required
                       />
+                      {hasNationalIdInput && !isNationalIdReady && (
+                        <span className="field-helper error">National ID must be exactly 8 or 9 digits.</span>
+                      )}
                     </div>
 
                     <div className="input-group">
@@ -3161,6 +3397,7 @@ export default function App() {
                       </label>
                       <input 
                         type="text" 
+                        inputMode={paymentMode === 'Mobile' ? 'numeric' : undefined}
                         className="disbursement-account-input" style={{ color: 'white' }}
                         value={disbursementAccount} 
                         onChange={(e) => setDisbursementAccount(paymentMode === 'Mobile' ? digitsOnly(e.target.value) : e.target.value)} 
@@ -3208,12 +3445,11 @@ export default function App() {
                     <div className="input-group" style={{ marginBottom: '15px' }}>
                       <label>Enter Amount To Pay (KES)</label>
                       <input 
-                        type="number" 
+                        type="text"
+                        inputMode="numeric"
                         placeholder="Enter Amount" 
-                        value={repaymentAmount} 
-                        onChange={(e) => setRepaymentAmount(e.target.value)} 
-                        min="1"
-                        max={currentLoanBalance}
+                        value={formatCurrencyInput(repaymentAmount)}
+                        onChange={(e) => setRepaymentAmount(digitsOnly(e.target.value))}
                       />
                     </div>
                     <div className="repayment-impact-panel">
