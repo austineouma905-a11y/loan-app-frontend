@@ -1295,17 +1295,51 @@ function AdminView({
       })
   ];
   const normalizedAdminSearch = normalizeStatusText(adminSearchTerm);
-  const recordMatchesAdminSearch = (record) => {
-    if (!normalizedAdminSearch) return true;
-
+  const getAdminSearchNameParts = (record) => {
+    const displayName = getUserDisplayName(record);
+    const firstName = getLoanValue(record, ['first_name', 'firstName'], '');
+    const lastName = getLoanValue(record, ['last_name', 'lastName'], '');
     return [
-      getUserDisplayName(record),
+      displayName,
+      `${firstName} ${lastName}`.trim(),
+      firstName,
+      lastName
+    ]
+      .map(normalizeStatusText)
+      .filter((value, index, values) => value && values.indexOf(value) === index);
+  };
+  const nameStartsWithSearch = (name, searchValue) => {
+    if (!name || !searchValue) return false;
+    if (name.startsWith(searchValue)) return true;
+
+    const nameWords = name.split(/\s+/).filter(Boolean);
+    const searchWords = searchValue.split(/\s+/).filter(Boolean);
+    if (searchWords.length > 1) {
+      return searchWords.every((word, index) => nameWords[index]?.startsWith(word));
+    }
+
+    return nameWords.some((word) => word.startsWith(searchValue));
+  };
+  const getAdminSearchRank = (record) => {
+    if (!normalizedAdminSearch) return 0;
+
+    const names = getAdminSearchNameParts(record);
+    if (names.some((name) => name === normalizedAdminSearch)) return 0;
+    if (names.some((name) => nameStartsWithSearch(name, normalizedAdminSearch))) return 1;
+    if (names.some((name) => name.includes(normalizedAdminSearch))) return 2;
+
+    const secondaryValues = [
       getUserRecordEmail(record),
       getUserRecordId(record),
       getLoanValue(record, ['user_id', 'userId'], ''),
       getLoanValue(record, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '')
-    ].some((value) => normalizeStatusText(value).includes(normalizedAdminSearch));
+    ].map(normalizeStatusText).filter(Boolean);
+
+    if (secondaryValues.some((value) => value.startsWith(normalizedAdminSearch))) return 3;
+    if (secondaryValues.some((value) => value.includes(normalizedAdminSearch))) return 4;
+    return Number.POSITIVE_INFINITY;
   };
+  const recordMatchesAdminSearch = (record) => getAdminSearchRank(record) !== Number.POSITIVE_INFINITY;
   const matchesLoanStatusFilter = (loan) => {
     if (loanStatusFilter === 'all') return true;
     if (loanStatusFilter === 'pending') return isPendingLoanStatus(loan);
@@ -1313,7 +1347,15 @@ function AdminView({
     if (loanStatusFilter === 'rejected') return isRejectedLoanStatus(loan);
     return true;
   };
+  const compareByAdminSearchRank = (first, second) => {
+    if (!normalizedAdminSearch) return 0;
+
+    return getAdminSearchRank(first) - getAdminSearchRank(second);
+  };
   const sortByNumericUserId = (records) => [...records].sort((first, second) => {
+    const searchRankOrder = compareByAdminSearchRank(first, second);
+    if (searchRankOrder !== 0) return searchRankOrder;
+
     const firstId = Number(getUserRecordId(first));
     const secondId = Number(getUserRecordId(second));
     const firstIsNumeric = Number.isFinite(firstId);
@@ -1325,6 +1367,9 @@ function AdminView({
     return getUserDisplayName(first).localeCompare(getUserDisplayName(second));
   });
   const sortByNumericLoanId = (records) => [...records].sort((first, second) => {
+    const searchRankOrder = compareByAdminSearchRank(first, second);
+    if (searchRankOrder !== 0) return searchRankOrder;
+
     const firstId = Number(getLoanValue(first, ['id', 'loanId', 'loan_id'], ''));
     const secondId = Number(getLoanValue(second, ['id', 'loanId', 'loan_id'], ''));
     const firstIsNumeric = Number.isFinite(firstId);
@@ -1338,6 +1383,9 @@ function AdminView({
     );
   });
   const filteredUsers = sortByNumericUserId(allUsers.filter(recordMatchesAdminSearch));
+  const adminSearchUserSuggestions = normalizedAdminSearch
+    ? filteredUsers.slice(0, 6)
+    : [];
   const filteredPendingVerificationUsers = sortByNumericUserId(pendingVerificationUsers.filter(recordMatchesAdminSearch));
   const filteredPendingLoanRequests = sortByNumericLoanId(
     visiblePendingLoanRequests
@@ -1374,6 +1422,36 @@ function AdminView({
     }
   };
 
+  const retryDelay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const fetchAdminResource = async (path, label, options = {}) => {
+    const cleanSecret = String(secret || '').trim();
+    const request = () => fetch(`${BASE_URL}${path}`, { headers: { 'x-admin-secret': cleanSecret } });
+    let response;
+
+    try {
+      response = await request();
+    } catch (fetchError) {
+      await retryDelay(1200);
+      try {
+        response = await request();
+      } catch {
+        throw new Error(`${label} could not be reached. Check the backend URL or try again after Render wakes up.`);
+      }
+    }
+
+    const payload = await parseAdminResponse(response);
+    if (!response.ok) {
+      throw new Error(
+        response.status === 401
+          ? (payload.message || 'Wrong admin password.')
+          : (payload.message || `${label} failed to load (${response.status}).`)
+      );
+    }
+
+    return payload || options.fallback || {};
+  };
+
   useEffect(() => {
     if (!isAuthenticated) return;
     onAdminCountsChange({
@@ -1386,30 +1464,17 @@ function AdminView({
     setLoading(true);
     setError('');
     try {
-      const cleanSecret = String(secret || '').trim();
-      const headers = { 'x-admin-secret': cleanSecret };
-      const [usersRes, loansRes, repaymentsRes, analyticsRes] = await Promise.all([
-        fetch(`${BASE_URL}/api/admin/users`, { headers }),
-        fetch(`${BASE_URL}/api/admin/loans`, { headers }),
-        fetch(`${BASE_URL}/api/admin/repayments`, { headers }),
-        fetch(`${BASE_URL}/api/admin/analytics`, { headers })
-      ]);
-
-      if (!usersRes.ok || !loansRes.ok || !analyticsRes.ok) {
-        const failedResponse = [usersRes, loansRes, analyticsRes].find((response) => !response.ok);
-        const failedPayload = await parseAdminResponse(failedResponse);
-        throw new Error(
-          failedResponse.status === 401
-            ? (failedPayload.message || 'Wrong admin password.')
-            : (failedPayload.message || `Admin dashboard failed to load (${failedResponse.status}).`)
-        );
-      }
-
-      const [usersData, loansData, repaymentsPayload, analyticsData] = await Promise.all([
-        usersRes.json(),
-        loansRes.json(),
-        repaymentsRes.ok ? repaymentsRes.json() : Promise.resolve({ repayments: null }),
-        analyticsRes.json()
+      const [usersData, loansData, repaymentsResult, analyticsResult] = await Promise.all([
+        fetchAdminResource('/api/admin/users', 'Admin users'),
+        fetchAdminResource('/api/admin/loans', 'Admin loans'),
+        fetchAdminResource('/api/admin/repayments', 'Admin repayments').then(
+          (payload) => ({ ok: true, payload }),
+          (error) => ({ ok: false, error })
+        ),
+        fetchAdminResource('/api/admin/analytics', 'Admin analytics').then(
+          (payload) => ({ ok: true, payload }),
+          (error) => ({ ok: false, error })
+        )
       ]);
       const receivedLoans = loansData.loans || [];
       const fallbackRepayments = receivedLoans
@@ -1420,6 +1485,7 @@ function AdminView({
           created_at: repayment.created_at || repayment.date_applied,
           transaction_type: repayment.transaction_type || 'Legacy Repayment'
         }));
+      const repaymentsPayload = repaymentsResult.ok ? repaymentsResult.payload : { repayments: null };
       const receivedRepayments = Array.isArray(repaymentsPayload.repayments)
         ? repaymentsPayload.repayments
         : fallbackRepayments;
@@ -1430,7 +1496,14 @@ function AdminView({
       setUsers(usersData.users || []);
       setLoans(separatedLoans);
       setRepayments(receivedRepayments);
-      setAnalytics(analyticsData);
+      setAnalytics(analyticsResult.ok ? analyticsResult.payload : null);
+
+      const optionalFailures = [repaymentsResult, analyticsResult]
+        .filter((result) => !result.ok)
+        .map((result) => result.error.message);
+      if (optionalFailures.length > 0) {
+        showAdminFeedback({ message: optionalFailures.join(' '), type: 'error' }, 5000);
+      }
     } catch (adminError) {
       setError(adminError.message || 'Cannot connect to server.');
       throw adminError;
@@ -1725,6 +1798,24 @@ function AdminView({
             onChange={(e) => setAdminSearchTerm(e.target.value)}
             placeholder="Name, email, or ID number"
           />
+          {adminSearchUserSuggestions.length > 0 && (
+            <div className="admin-search-results">
+              {adminSearchUserSuggestions.map((user) => {
+                const userKey = getUserRecordId(user) || getUserRecordEmail(user) || getUserDisplayName(user);
+                return (
+                  <button
+                    key={`search-user-${userKey}`}
+                    type="button"
+                    className="admin-search-result"
+                    onClick={() => openDetailModal(user, 'user')}
+                  >
+                    <span>{getUserDisplayName(user)}</span>
+                    <small>{getUserRecordEmail(user) || getUserPhoneDisplay(user)}</small>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="input-group admin-status-filter">
           <label>Loan Status</label>
@@ -2433,7 +2524,7 @@ export default function App() {
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
     if (paymentLoading) return;
-    const paymentAmount = variant === 'partial' ? parseFloat(repaymentAmount) : parseFloat(loanBalance);
+    const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : parseFloat(loanBalance);
 
     if (!mpesaPhone || mpesaPhone.trim() === '') {
       triggerAlert('Please enter a valid M-Pesa phone number.', 'error-red');
