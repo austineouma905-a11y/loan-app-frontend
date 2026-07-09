@@ -24,6 +24,7 @@ const SIGNUP_NOTIFICATIONS_KEY = 'loan-app-pending-signups';
 const LOCAL_USERS_KEY = 'loan-app-local-users';
 const LOCAL_RESET_CODES_KEY = 'loan-app-local-reset-codes';
 const USER_READ_NOTIFICATIONS_KEY = 'loan-app-read-user-notifications';
+const AUTH_SESSION_KEY = 'loan-app-auth-session';
 const ALLOW_LOCAL_AUTH_FALLBACK = isLocalBrowserHost()
   && String(process.env?.REACT_APP_ALLOW_LOCAL_AUTH_FALLBACK || '').toLowerCase() === 'true';
 const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.REACT_APP_ADMIN_EMAIL || 'austineouma905@gmail.com')
@@ -31,6 +32,30 @@ const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.
   .map((email) => normalizeEmail(email))
   .filter(Boolean);
 const isAdminEmail = (email) => ADMIN_EMAILS.includes(normalizeEmail(email));
+
+const readStoredAuthSession = () => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const session = JSON.parse(window.localStorage.getItem(AUTH_SESSION_KEY) || 'null');
+    return session && session.userProfile?.id ? session : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredAuthSession = (session) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+  } catch {}
+};
+
+const clearStoredAuthSession = () => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.removeItem(AUTH_SESSION_KEY);
+  } catch {}
+};
 
 const getPasswordStrength = (value = '') => {
   let score = 0;
@@ -351,10 +376,10 @@ function AuthView({
       <div className="auth-view">
         <h2>Account Login</h2>
         <p className="auth-subtitle">Welcome To Our Loan App</p>
-        <form onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(); }} className="auth-form">
+        <form onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(); }} className="auth-form" autoComplete="off">
           <div className="input-group">
             <label>Email: </label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required disabled={loginLoading} />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required disabled={loginLoading} autoComplete="new-email" name="login-email" />
           </div>
           
           <div className="input-group">
@@ -367,6 +392,8 @@ function AuthView({
                 placeholder="enter password" 
                 style={{ width: '100%', paddingRight: '40px' }}
                 disabled={loginLoading}
+                autoComplete="new-password"
+                name="login-password"
                 required 
               />
               <span 
@@ -426,11 +453,11 @@ function AuthView({
       <form onSubmit={(e) => { e.preventDefault(); handleSignUpSubmit(); }} className="auth-form">
         <div className="input-group">
           <label>First Name</label>
-          <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" required />
+          <input type="text" value={firstName} onChange={(e) => setFirstName(sanitizeNameInput(e.target.value))} placeholder="First name" required pattern="[A-Za-z]+(?:[ '-][A-Za-z]+)*" title="Use letters only. Spaces, hyphens, and apostrophes are allowed." maxLength="40" />
         </div>
         <div className="input-group">
           <label>Last Name</label>
-          <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Last name" required />
+          <input type="text" value={lastName} onChange={(e) => setLastName(sanitizeNameInput(e.target.value))} placeholder="Last name" required pattern="[A-Za-z]+(?:[ '-][A-Za-z]+)*" title="Use letters only. Spaces, hyphens, and apostrophes are allowed." maxLength="40" />
         </div>
         <div className="input-group">
           <label>Email Address</label>
@@ -848,6 +875,12 @@ const formatKes = (amount) => {
 
 const digitsOnly = (value = '') => String(value || '').replace(/\D/g, '');
 const isDigitsOnly = (value = '') => /^\d+$/.test(String(value || ''));
+const sanitizeNameInput = (value = '') => String(value || '').replace(/[^A-Za-z '-]/g, '').replace(/\s{2,}/g, ' ');
+const isValidPersonName = (value = '') => {
+  const cleanValue = String(value || '').trim();
+  const letterCount = (cleanValue.match(/[A-Za-z]/g) || []).length;
+  return letterCount >= 2 && /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/.test(cleanValue);
+};
 const isValidKenyanNationalId = (value = '') => /^\d{8,9}$/.test(String(value || ''));
 const parseCurrencyInput = (value = '') => {
   const numericValue = Number(digitsOnly(value));
@@ -972,6 +1005,45 @@ const getLatestLoanRecord = (records = []) => {
     })[0] || null;
 };
 
+const getLoanRecordId = (loan) => String(getLoanValue(loan, ['id', 'loanId', 'loan_id'], '') || '');
+const getLoanRepaymentTotal = (loan) => Math.abs(Number(getLoanValue(loan, ['repayment_amount', 'amount'], 0)) || 0);
+
+const getUserLoanRecordsFromTransactions = (records = []) => records
+  .filter((record) => !isRepaymentRecord(record))
+  .filter((record) => Number(getLoanValue(record, ['amount', 'repayment_amount'], 0)) >= 0)
+  .sort((first, second) => {
+    const firstDate = new Date(getLoanValue(first, ['date_applied', 'createdAt', 'created_at', 'date'])).getTime() || 0;
+    const secondDate = new Date(getLoanValue(second, ['date_applied', 'createdAt', 'created_at', 'date'])).getTime() || 0;
+    if (secondDate !== firstDate) return secondDate - firstDate;
+    return Number(getLoanRecordId(second) || 0) - Number(getLoanRecordId(first) || 0);
+  });
+
+const buildLoanBalances = (records = []) => {
+  const loans = getUserLoanRecordsFromTransactions(records);
+  const repayments = records.filter(isRepaymentRecord);
+  const balances = {};
+
+  loans.forEach((loan) => {
+    const loanId = getLoanRecordId(loan);
+    const loanTotal = getLoanRepaymentTotal(loan);
+    const matchingRepayments = repayments.filter((repayment) => (
+      String(getLoanValue(repayment, ['loan_id', 'loanId'], '') || '') === loanId
+    ));
+    const completedRepaid = matchingRepayments.reduce((sum, repayment) => {
+      const status = normalizeStatusText(getLoanStatusText(repayment) || getLoanValue(repayment, ['display_status'], ''));
+      return statusIncludesAny(status, ['completed', 'paid'])
+        ? sum + Math.abs(Number(getLoanValue(repayment, ['amount'], 0)) || 0)
+        : sum;
+    }, 0);
+
+    if (loanId) {
+      balances[loanId] = Math.max(loanTotal - completedRepaid, 0);
+    }
+
+  });
+
+  return balances;
+};
 const getLoanStatusMeta = (status, hasLoanInfo, loanBalance) => {
   if (!hasLoanInfo) {
     return {
@@ -1110,6 +1182,81 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   );
 }
 
+function LoanListView({ loans = [], loanBalances = {}, loading, error, onRefresh, onPayFull, onPayPartial }) {
+  const visibleLoans = loans.filter((loan) => !isRepaymentRecord(loan));
+  const totalOutstanding = visibleLoans.reduce((sum, loan) => {
+    const loanId = getLoanRecordId(loan);
+    return sum + Math.max(Number(loanBalances[loanId] ?? getLoanRepaymentTotal(loan)), 0);
+  }, 0);
+
+  return (
+    <div className="view-fade-in loan-list-view">
+      <div className="loan-status-header-row">
+        <div>
+          <h2>Loan Lists</h2>
+          <p className="loan-status-summary">Your loan products are listed separately so each payment goes to the right product.</p>
+        </div>
+        <button type="button" className="loan-status-refresh-btn" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && <div className="loan-status-error">{error}</div>}
+
+      {loading && visibleLoans.length === 0 ? (
+        <TableSkeleton rows={4} columns={6} />
+      ) : visibleLoans.length === 0 ? (
+        <p className="loan-status-empty-text">No loan products taken yet.</p>
+      ) : (
+        <div className="responsive-table-shell">
+          <table className="data-table loan-list-table">
+            <thead>
+              <tr>
+                <th>Loan Product</th>
+                <th>Principal</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th>Due Date</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleLoans.map((loan) => {
+                const loanId = getLoanRecordId(loan);
+                const balance = Math.max(Number(loanBalances[loanId] ?? getLoanRepaymentTotal(loan)), 0);
+                const statusLabel = titleCaseStatus(getLoanStatusText(loan) || getLoanValue(loan, ['display_status'], 'Pending'));
+                const canPay = balance > 0 && isApprovedLoanStatus(loan);
+
+                return (
+                  <tr key={loanId || `${getLoanValue(loan, ['loan_type'], 'loan')}-${getLoanValue(loan, ['date_applied'], '')}`}>
+                    <td><strong>{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan Product')}</strong></td>
+                    <td>{formatKes(getLoanValue(loan, ['principal_amount', 'amount'], 0))}</td>
+                    <td>{formatKes(balance)}</td>
+                    <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                    <td>{formatLoanDate(getLoanValue(loan, ['due_date', 'dueDate'], ''))}</td>
+                    <td>
+                      <div className="loan-list-actions">
+                        <button type="button" className="admin-action-btn approve" onClick={() => onPayFull(loan)} disabled={!canPay}>Full</button>
+                        <button type="button" className="admin-action-btn" onClick={() => onPayPartial(loan)} disabled={!canPay}>Partial</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="loan-list-total-row">
+                <td colSpan="2">Total Outstanding</td>
+                <td>{formatKes(totalOutstanding)}</td>
+                <td colSpan="3"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 function NotificationsView({
   isAdmin = false,
   userNotifications = [],
@@ -1894,7 +2041,7 @@ function AdminView({
                         <td>{formatKes(loan.principal_amount || loan.amount)}</td>
                         <td>{formatKes(loan.repayment_amount || loan.amount)}</td>
                         <td>{formatLoanDate(loan.due_date)}</td>
-                        <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                    <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
                         <td>
                           {reviewNotice ? (
                             <span className={`admin-review-result ${reviewNotice.type}`}>{reviewNotice.label}</span>
@@ -1988,7 +2135,7 @@ function AdminView({
                   <td>{formatKes(Math.abs(Number(l.principal_amount || l.amount)))}</td>
                   <td>{formatKes(Math.abs(Number(l.repayment_amount || l.amount)))}</td>
                   <td>{l.receipt_number || l.account_number || '-'}</td>
-                  <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                    <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
                   <td>{formatLoanDate(l.completed_at || l.date_applied)}</td>
                   <td>
                     {reviewNotice ? (
@@ -2043,7 +2190,7 @@ function AdminView({
                   <td>{repayment.payment_mode || '-'}</td>
                   <td>{repayment.receipt_number || repayment.account_number || '-'}</td>
                   <td>{repayment.checkout_request_id || repayment.provider_request_id || '-'}</td>
-                  <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
+                    <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
                   <td>{formatLoanDate(repayment.completed_at || repayment.created_at)}</td>
                 </tr>
               );
@@ -2174,6 +2321,9 @@ export default function App() {
   const [disbursementAccount, setDisbursementAccount] = useState('');
   const [loanBalance, setLoanBalance] = useState(0);
   const [latestLoan, setLatestLoan] = useState(null);
+  const [userLoanRecords, setUserLoanRecords] = useState([]);
+  const [loanBalancesById, setLoanBalancesById] = useState({});
+  const [selectedRepaymentLoanId, setSelectedRepaymentLoanId] = useState('');
   const [userNotifications, setUserNotifications] = useState([]);
   const [readUserNotificationKeys, setReadUserNotificationKeys] = useState([]);
   const [loanStatusLoading, setLoanStatusLoading] = useState(false);
@@ -2199,6 +2349,50 @@ export default function App() {
   }, [userProfile.phone]);
 
   useEffect(() => {
+    const session = readStoredAuthSession();
+    if (!session) return;
+
+    const sessionEmail = normalizeEmail(session.userProfile?.email);
+    if (session.isAdminUser || isAdminEmail(sessionEmail)) {
+      clearStoredAuthSession();
+      return;
+    }
+
+    setIsLoggedIn(true);
+    setIsAdminUser(false);
+    setCurrentView(session.currentView || 'dashboard_home');
+    setSettingsMode(session.settingsMode || 'home');
+    setLoanBalance(Number(session.loanBalance || 0));
+    setLatestLoan(session.latestLoan || null);
+    setUserLoanRecords(Array.isArray(session.userLoanRecords) ? session.userLoanRecords : []);
+    setLoanBalancesById(session.loanBalancesById || {});
+    setSelectedRepaymentLoanId(session.selectedRepaymentLoanId || '');
+    setReadUserNotificationKeys(Array.isArray(session.readUserNotificationKeys) ? session.readUserNotificationKeys : []);
+    setUserProfile(session.userProfile);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || !userProfile.id) return;
+    if (isAdminUser || isAdminEmail(userProfile.email)) {
+      clearStoredAuthSession();
+      return;
+    }
+
+    writeStoredAuthSession({
+      isAdminUser,
+      currentView,
+      settingsMode,
+      loanBalance,
+      latestLoan,
+      userLoanRecords,
+      loanBalancesById,
+      selectedRepaymentLoanId,
+      readUserNotificationKeys,
+      userProfile
+    });
+  }, [isLoggedIn, isAdminUser, currentView, settingsMode, loanBalance, latestLoan, userLoanRecords, loanBalancesById, selectedRepaymentLoanId, readUserNotificationKeys, userProfile]);
+
+  useEffect(() => {
     if (ALLOW_LOCAL_AUTH_FALLBACK || typeof window === 'undefined' || !window.localStorage) return;
     window.localStorage.removeItem(SIGNUP_NOTIFICATIONS_KEY);
     window.localStorage.removeItem(LOCAL_USERS_KEY);
@@ -2219,7 +2413,12 @@ export default function App() {
     : 0;
   const loanQuote = getLoanQuote(selectedLoanAmountValue, selectedLoan?.rate, loanDurationMonths);
   const partialPaymentValue = parseCurrencyInput(repaymentAmount);
-  const currentLoanBalance = Number(loanBalance) || 0;
+  const payableLoanRecords = userLoanRecords.filter((loan) => Math.max(Number(loanBalancesById[getLoanRecordId(loan)] ?? getLoanRepaymentTotal(loan)), 0) > 0);
+  const selectedRepaymentLoan = userLoanRecords.find((loan) => getLoanRecordId(loan) === selectedRepaymentLoanId) || payableLoanRecords[0] || latestLoan;
+  const selectedRepaymentLoanBalance = selectedRepaymentLoan
+    ? Math.max(Number(loanBalancesById[getLoanRecordId(selectedRepaymentLoan)] ?? getLoanRepaymentTotal(selectedRepaymentLoan)), 0)
+    : Number(loanBalance) || 0;
+  const currentLoanBalance = selectedRepaymentLoanBalance;
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
   const hasNationalIdInput = nationalIdNumber.length > 0;
@@ -2421,6 +2620,17 @@ export default function App() {
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   }, [isAdminUser, navigateToView]);
 
+  const openRepaymentForLoan = useCallback((loan, viewName) => {
+    const loanId = getLoanRecordId(loan);
+    if (loanId) setSelectedRepaymentLoanId(loanId);
+    setLatestLoan((currentLoan) => loan || currentLoan);
+    setPaymentStatus('');
+    setPaymentError(false);
+    setRepaymentAmount('');
+    setRepayDropdown(true);
+    navigateToView(viewName);
+    if (window.innerWidth <= 768) setIsMenuOpen(false);
+  }, [navigateToView]);
   const refreshLatestLoanStatus = useCallback(async (userId = userProfile.id) => {
     if (!userId) return;
 
@@ -2442,7 +2652,9 @@ export default function App() {
       if (transactionsResponse.ok) {
         records = transactionsData.transactions || transactionsData.loans || transactionsData.loanRecords || [];
         const latestRecord = getLatestLoanRecord(records);
+        const nextLoanRecords = getUserLoanRecordsFromTransactions(records);
         setLatestLoan((currentLoan) => latestRecord || currentLoan);
+        setUserLoanRecords(nextLoanRecords);
       } else {
         setLoanStatusError(transactionsData.message || 'Unable to load loan status right now.');
       }
@@ -2450,6 +2662,7 @@ export default function App() {
       if (balanceResponse.ok) {
         resolvedBalance = Number(balanceData.loanBalance || 0);
         setLoanBalance(resolvedBalance);
+        setLoanBalancesById(buildLoanBalances(records));
       } else if (transactionsResponse.ok) {
         resolvedBalance = records.reduce((total, record) => {
           const status = String(record.status || record.display_status || '').toLowerCase();
@@ -2457,6 +2670,7 @@ export default function App() {
           return isPosted ? total + (Number(record.amount) || 0) : total;
         }, 0);
         setLoanBalance(resolvedBalance);
+        setLoanBalancesById(buildLoanBalances(records));
       }
 
       if (transactionsResponse.ok) {
@@ -2474,14 +2688,14 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
-    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
+    if (!['dashboard_home', 'loan_status', 'loan_lists', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
 
     refreshLatestLoanStatus(userProfile.id);
   }, [isLoggedIn, userProfile.id, currentView, refreshLatestLoanStatus]);
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
-    if (!['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
+    if (!['dashboard_home', 'loan_status', 'loan_lists', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
 
     const refreshTimer = setInterval(() => {
       refreshLatestLoanStatus(userProfile.id);
@@ -2524,18 +2738,19 @@ export default function App() {
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
     if (paymentLoading) return;
-    const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : parseFloat(loanBalance);
+    const selectedLoanId = getLoanRecordId(selectedRepaymentLoan);
+    const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : parseFloat(currentLoanBalance);
 
     if (!mpesaPhone || mpesaPhone.trim() === '') {
       triggerAlert('Please enter a valid M-Pesa phone number.', 'error-red');
       return;
     }
 
-    if (loanBalance <= 0) {
-      triggerAlert('You do not have an outstanding balance to repay.', 'error-red');
+    if (currentLoanBalance <= 0) {
+      triggerAlert('You do not have an outstanding balance to repay for this loan product.', 'error-red');
       return;
     }
-    if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > loanBalance)) {
+    if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > currentLoanBalance)) {
       triggerAlert('Please enter a valid partial payment amount.', 'error-red');
       return;
     }
@@ -2568,8 +2783,9 @@ export default function App() {
         phoneNumber: formattedPhone, 
         amount: paymentAmount,
         userId: userProfile.id,
-        accountReference: `LoanRepayment-${userProfile.loanId}`,
-        transactionDesc: `Repayment of KES ${paymentAmount.toLocaleString()} for Loan ID ${userProfile.loanId}`
+        loanId: selectedLoanId || undefined,
+        accountReference: `Loan-${selectedLoanId || userProfile.loanId}`,
+        transactionDesc: `${getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan')} repayment`
       });
       if (response.status === 200) {
         setPaymentStatus(response.data?.message || 'Check your phone and enter your M-Pesa PIN.');
@@ -2656,6 +2872,11 @@ export default function App() {
         return;
       }
 
+      if (!isValidPersonName(cleanFirstName) || !isValidPersonName(cleanLastName)) {
+        triggerAlert("First and last name must contain valid name letters only.", "error-red");
+        return;
+      }
+
       if (!isDigitsOnly(cleanPhone)) {
         triggerAlert("Phone number must contain numbers only.", "error-red");
         return;
@@ -2697,6 +2918,9 @@ export default function App() {
     setSettingsMode('home');
     setLoanBalance(0);
     setLatestLoan(null);
+    setUserLoanRecords([]);
+    setLoanBalancesById({});
+    setSelectedRepaymentLoanId('');
     setUserNotifications([]);
     setReadUserNotificationKeys([]);
     setLoanStatusError('');
@@ -2711,6 +2935,7 @@ export default function App() {
     setRepaymentAmount('');
     setNationalIdNumber('');
     setLoanRequestLoading(false);
+    clearStoredAuthSession();
     triggerAlert('Logged out successfully.', 'logout');
   };
 
@@ -2767,9 +2992,16 @@ export default function App() {
     setNavigationHistory([]);
     setIsLoggedIn(true);
     setIsAdminUser(Boolean(data.isAdmin || data.role === 'admin' || isAdminEmail(data.email || cleanEmail)));
+    const loginLoanRecords = Array.isArray(data.borrowedLoansList)
+      ? data.borrowedLoansList
+      : (loginLoan ? [loginLoan] : []);
+
     setCurrentView('dashboard_home');
     setLoanBalance(data.loanBalance || 0);
     setLatestLoan(loginLoan);
+    setUserLoanRecords(loginLoanRecords);
+    setLoanBalancesById(loginLoan ? { [getLoanRecordId(loginLoan)]: Number(data.loanBalance || getLoanRepaymentTotal(loginLoan)) } : {});
+    setSelectedRepaymentLoanId(loginLoan ? getLoanRecordId(loginLoan) : '');
     setUserNotifications([]);
     setReadUserNotificationKeys(readStoredUserNotificationKeys(profileId, data.email || cleanEmail));
     setLoanStatusError('');
@@ -2826,6 +3058,11 @@ export default function App() {
 
     if (!cleanFirstName || !cleanLastName || !cleanPhone) {
       triggerAlert('Please enter your first name, last name, and phone number.', 'logout');
+      return;
+    }
+
+    if (!isValidPersonName(cleanFirstName) || !isValidPersonName(cleanLastName)) {
+      triggerAlert('First and last name must contain valid name letters only.', 'logout');
       return;
     }
 
@@ -3069,7 +3306,7 @@ export default function App() {
       setNotificationPanelMode('user');
       navigateToView(viewName);
     }
-    if (['dashboard_home', 'loan_status', 'repay_fully', 'repay_partially', 'notifications'].includes(viewName)) {
+    if (['dashboard_home', 'loan_status', 'loan_lists', 'repay_fully', 'repay_partially', 'notifications'].includes(viewName)) {
       refreshLatestLoanStatus();
     }
     if (window.innerWidth <= 768) setIsMenuOpen(false);
@@ -3159,6 +3396,10 @@ export default function App() {
           setLoanBalance(data.newTotalBalance || data.loanBalance || loanBalance);
         }
         setLatestLoan(requestedLoan);
+        setUserLoanRecords((currentRecords) => [requestedLoan, ...currentRecords.filter((loan) => getLoanRecordId(loan) !== getLoanRecordId(requestedLoan))]);
+        if (getLoanRecordId(requestedLoan)) {
+          setSelectedRepaymentLoanId(getLoanRecordId(requestedLoan));
+        }
         setLoanStatusError('');
         setAdminPendingCounts((currentCounts) => ({
           ...currentCounts,
@@ -3260,7 +3501,8 @@ export default function App() {
               <nav className="nav-links">
                 <button className={`nav-item ${currentView === 'dashboard_home' ? 'active' : ''}`} onClick={() => handleMobileNavClick('dashboard_home')}>Dashboard</button>
                 <button className={`nav-item ${currentView === 'profile' ? 'active' : ''}`} onClick={() => handleMobileNavClick('profile')}>My Profile</button>
-                <button className={`nav-item ${currentView === 'loans' || currentView === 'apply_loan_form' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loans')}>Loans</button>
+                <button className={`nav-item ${currentView === 'loans' || currentView === 'apply_loan_form' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loans')}>Loan Products</button>
+                <button className={`nav-item ${currentView === 'loan_lists' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loan_lists')}>Loan Lists</button>
                 <button className={`nav-item ${currentView === 'loan_status' ? 'active' : ''}`} onClick={() => handleMobileNavClick('loan_status')}>Loan Status</button>
                 
                 <div className="collapsible-nav-group">
@@ -3297,7 +3539,7 @@ export default function App() {
                     <div className="monetary-amount-display">
                       KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    <button className="pay-now-action-btn" onClick={() => { setRepayDropdown(true); navigateToView('repay_fully'); }}>Pay Now</button>
+                    <button className="pay-now-action-btn" onClick={() => { setRepayDropdown(true); navigateToView('loan_lists'); }}>Pay Now</button>
                   </div>
                 </div>
               )}
@@ -3308,7 +3550,8 @@ export default function App() {
                   <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Clear outstanding loan balances on time to receive account standing discounts.</p>
                   <div className="repay-box-container" style={{ background: '#32bcde', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
                     <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
-                      Current Loan Balance Total: <strong>KES {Number(loanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                      Selected Loan: <strong>{getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan Product')}</strong><br />
+                      Balance Due: <strong>KES {Number(currentLoanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                     </p>
                     
                     <form onSubmit={(e) => handleMpesaPaymentSubmit(e, 'full')} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
@@ -3369,7 +3612,7 @@ export default function App() {
 
               {currentView === 'loans' && (
                 <div className="view-fade-in loans-view-container">
-                  <h2>Types of Loans We Offer</h2>
+                  <h2>Loan Products</h2>
                   <div className="loan-grid">
                     {loanTypes.map((loan) => (
                       <div key={loan.id} className="loan-card">
@@ -3545,6 +3788,17 @@ export default function App() {
                 />
               )}
 
+              {currentView === 'loan_lists' && (
+                <LoanListView
+                  loans={userLoanRecords}
+                  loanBalances={loanBalancesById}
+                  loading={loanStatusLoading}
+                  error={loanStatusError}
+                  onRefresh={() => refreshLatestLoanStatus()}
+                  onPayFull={(loan) => openRepaymentForLoan(loan, 'repay_fully')}
+                  onPayPartial={(loan) => openRepaymentForLoan(loan, 'repay_partially')}
+                />
+              )}
               {currentView === 'notifications' && (
                 <NotificationsView
                   isAdmin={isAdminUser && notificationPanelMode === 'admin'}
@@ -3560,7 +3814,7 @@ export default function App() {
                   <h2 style={{color: '#ec7411'}}>Partial loan Repayment Option</h2>
                   <p className="repay-text" style={{color: 'whitesmoke'}}>Repay your Loan with any amount available, we offer flexible Loan Repayment!</p>
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
-                    <p style={{color: 'white', marginBottom: '10px'}}>Total Due: <strong>{formatKes(loanBalance)}</strong></p>
+                    <p style={{color: 'white', marginBottom: '10px'}}>Selected Loan: <strong>{getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan Product')}</strong><br />Total Due: <strong>{formatKes(currentLoanBalance)}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
                       <label>Enter Amount To Pay (KES)</label>
                       <input 
@@ -3696,11 +3950,11 @@ export default function App() {
                     <form onSubmit={handleProfileUpdate} className="auth-form">
                       <div className="input-group">
                         <label>First Name</label>
-                        <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                        <input type="text" value={firstName} onChange={(e) => setFirstName(sanitizeNameInput(e.target.value))} required pattern="[A-Za-z]+(?:[ '-][A-Za-z]+)*" title="Use letters only. Spaces, hyphens, and apostrophes are allowed." maxLength="40" />
                       </div>
                       <div className="input-group">
                         <label>Last Name</label>
-                        <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+                        <input type="text" value={lastName} onChange={(e) => setLastName(sanitizeNameInput(e.target.value))} required pattern="[A-Za-z]+(?:[ '-][A-Za-z]+)*" title="Use letters only. Spaces, hyphens, and apostrophes are allowed." maxLength="40" />
                       </div>
                       <div className="input-group">
                         <label>Email</label>
@@ -3736,5 +3990,9 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
 
 
