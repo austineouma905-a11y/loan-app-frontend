@@ -1042,6 +1042,28 @@ const buildLoanBalances = (records = []) => {
 
   });
 
+  const accountRepaymentTotal = repayments
+    .filter((repayment) => !getLoanValue(repayment, ['loan_id', 'loanId'], ''))
+    .reduce((sum, repayment) => {
+      const status = normalizeStatusText(getLoanStatusText(repayment) || getLoanValue(repayment, ['display_status'], ''));
+      return statusIncludesAny(status, ['completed', 'paid'])
+        ? sum + Math.abs(Number(getLoanValue(repayment, ['amount'], 0)) || 0)
+        : sum;
+    }, 0);
+
+  let remainingAccountRepayment = accountRepaymentTotal;
+  loans
+    .slice()
+    .reverse()
+    .forEach((loan) => {
+      if (remainingAccountRepayment <= 0) return;
+      const loanId = getLoanRecordId(loan);
+      if (!loanId || !Object.prototype.hasOwnProperty.call(balances, loanId)) return;
+      const amountApplied = Math.min(balances[loanId], remainingAccountRepayment);
+      balances[loanId] = Math.max(balances[loanId] - amountApplied, 0);
+      remainingAccountRepayment -= amountApplied;
+    });
+
   return balances;
 };
 const getLoanStatusMeta = (status, hasLoanInfo, loanBalance) => {
@@ -1182,19 +1204,16 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   );
 }
 
-function LoanListView({ loans = [], loanBalances = {}, loading, error, onRefresh, onPayFull, onPayPartial }) {
+function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loading, error, onRefresh, onPayFull, onPayPartial }) {
   const visibleLoans = loans.filter((loan) => !isRepaymentRecord(loan));
-  const totalOutstanding = visibleLoans.reduce((sum, loan) => {
-    const loanId = getLoanRecordId(loan);
-    return sum + Math.max(Number(loanBalances[loanId] ?? getLoanRepaymentTotal(loan)), 0);
-  }, 0);
+  const totalOutstanding = Math.max(Number(accountBalance || 0), 0);
 
   return (
     <div className="view-fade-in loan-list-view">
       <div className="loan-status-header-row">
         <div>
           <h2>Loan Lists</h2>
-          <p className="loan-status-summary">Your loan products are listed separately so each payment goes to the right product.</p>
+          <p className="loan-status-summary">Your loan products are listed separately, while repayments reduce your total account balance.</p>
         </div>
         <button type="button" className="loan-status-refresh-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Refreshing...' : 'Refresh'}
@@ -1225,7 +1244,7 @@ function LoanListView({ loans = [], loanBalances = {}, loading, error, onRefresh
                 const loanId = getLoanRecordId(loan);
                 const balance = Math.max(Number(loanBalances[loanId] ?? getLoanRepaymentTotal(loan)), 0);
                 const statusLabel = titleCaseStatus(getLoanStatusText(loan) || getLoanValue(loan, ['display_status'], 'Pending'));
-                const canPay = balance > 0 && isApprovedLoanStatus(loan);
+                const canPay = totalOutstanding > 0 && isApprovedLoanStatus(loan);
 
                 return (
                   <tr key={loanId || `${getLoanValue(loan, ['loan_type'], 'loan')}-${getLoanValue(loan, ['date_applied'], '')}`}>
@@ -1832,13 +1851,16 @@ function AdminView({
     const repaymentSuccessRate = userRepayments.length
       ? Math.round((completedRepayments / userRepayments.length) * 100)
       : 0;
+    const nationalIdNumber = getLoanValue(record, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '')
+      || getLoanValue(userLoans.find((loan) => getLoanValue(loan, ['national_id_number', 'nationalIdNumber'], '')), ['national_id_number', 'nationalIdNumber'], '');
 
     return {
       userLoans,
       userRepayments,
       totalLoansTaken: userLoans.filter(isApprovedLoanStatus).length,
       repaymentSuccessRate,
-      activeBalance: Math.max(disbursedTotal - repaidTotal, 0)
+      activeBalance: Math.max(disbursedTotal - repaidTotal, 0),
+      nationalIdNumber
     };
   };
 
@@ -2213,7 +2235,7 @@ function AdminView({
 
             <div className="admin-detail-grid">
               <div><span>User ID</span><strong>{getRecordUserId(modalRecord) || '-'}</strong></div>
-              <div><span>ID Number</span><strong>{getLoanValue(modalRecord, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '-')}</strong></div>
+              <div><span>ID Number</span><strong>{modalHistory.nationalIdNumber || '-'}</strong></div>
               <div><span>Total Loans Taken</span><strong>{modalHistory.totalLoansTaken}</strong></div>
               <div><span>Repayment Success</span><strong>{modalHistory.repaymentSuccessRate}%</strong></div>
               <div><span>Active Balance</span><strong>{formatKes(modalHistory.activeBalance)}</strong></div>
@@ -2323,7 +2345,6 @@ export default function App() {
   const [latestLoan, setLatestLoan] = useState(null);
   const [userLoanRecords, setUserLoanRecords] = useState([]);
   const [loanBalancesById, setLoanBalancesById] = useState({});
-  const [selectedRepaymentLoanId, setSelectedRepaymentLoanId] = useState('');
   const [userNotifications, setUserNotifications] = useState([]);
   const [readUserNotificationKeys, setReadUserNotificationKeys] = useState([]);
   const [loanStatusLoading, setLoanStatusLoading] = useState(false);
@@ -2366,7 +2387,6 @@ export default function App() {
     setLatestLoan(session.latestLoan || null);
     setUserLoanRecords(Array.isArray(session.userLoanRecords) ? session.userLoanRecords : []);
     setLoanBalancesById(session.loanBalancesById || {});
-    setSelectedRepaymentLoanId(session.selectedRepaymentLoanId || '');
     setReadUserNotificationKeys(Array.isArray(session.readUserNotificationKeys) ? session.readUserNotificationKeys : []);
     setUserProfile(session.userProfile);
   }, []);
@@ -2386,11 +2406,10 @@ export default function App() {
       latestLoan,
       userLoanRecords,
       loanBalancesById,
-      selectedRepaymentLoanId,
       readUserNotificationKeys,
       userProfile
     });
-  }, [isLoggedIn, isAdminUser, currentView, settingsMode, loanBalance, latestLoan, userLoanRecords, loanBalancesById, selectedRepaymentLoanId, readUserNotificationKeys, userProfile]);
+  }, [isLoggedIn, isAdminUser, currentView, settingsMode, loanBalance, latestLoan, userLoanRecords, loanBalancesById, readUserNotificationKeys, userProfile]);
 
   useEffect(() => {
     if (ALLOW_LOCAL_AUTH_FALLBACK || typeof window === 'undefined' || !window.localStorage) return;
@@ -2413,12 +2432,7 @@ export default function App() {
     : 0;
   const loanQuote = getLoanQuote(selectedLoanAmountValue, selectedLoan?.rate, loanDurationMonths);
   const partialPaymentValue = parseCurrencyInput(repaymentAmount);
-  const payableLoanRecords = userLoanRecords.filter((loan) => Math.max(Number(loanBalancesById[getLoanRecordId(loan)] ?? getLoanRepaymentTotal(loan)), 0) > 0);
-  const selectedRepaymentLoan = userLoanRecords.find((loan) => getLoanRecordId(loan) === selectedRepaymentLoanId) || payableLoanRecords[0] || latestLoan;
-  const selectedRepaymentLoanBalance = selectedRepaymentLoan
-    ? Math.max(Number(loanBalancesById[getLoanRecordId(selectedRepaymentLoan)] ?? getLoanRepaymentTotal(selectedRepaymentLoan)), 0)
-    : Number(loanBalance) || 0;
-  const currentLoanBalance = selectedRepaymentLoanBalance;
+  const currentLoanBalance = Math.max(Number(loanBalance || 0), 0);
   const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
   const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
   const hasNationalIdInput = nationalIdNumber.length > 0;
@@ -2620,17 +2634,6 @@ export default function App() {
     if (window.innerWidth <= 768) setIsMenuOpen(false);
   }, [isAdminUser, navigateToView]);
 
-  const openRepaymentForLoan = useCallback((loan, viewName) => {
-    const loanId = getLoanRecordId(loan);
-    if (loanId) setSelectedRepaymentLoanId(loanId);
-    setLatestLoan((currentLoan) => loan || currentLoan);
-    setPaymentStatus('');
-    setPaymentError(false);
-    setRepaymentAmount('');
-    setRepayDropdown(true);
-    navigateToView(viewName);
-    if (window.innerWidth <= 768) setIsMenuOpen(false);
-  }, [navigateToView]);
   const refreshLatestLoanStatus = useCallback(async (userId = userProfile.id) => {
     if (!userId) return;
 
@@ -2686,6 +2689,16 @@ export default function App() {
     }
   }, [userProfile.id]);
 
+  const openRepaymentView = useCallback((viewName) => {
+    setPaymentStatus('');
+    setPaymentError(false);
+    setRepaymentAmount('');
+    setRepayDropdown(true);
+    navigateToView(viewName);
+    refreshLatestLoanStatus(userProfile.id);
+    if (window.innerWidth <= 768) setIsMenuOpen(false);
+  }, [navigateToView, refreshLatestLoanStatus, userProfile.id]);
+
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
     if (!['dashboard_home', 'loan_status', 'loan_lists', 'repay_fully', 'repay_partially', 'notifications'].includes(currentView)) return;
@@ -2738,7 +2751,6 @@ export default function App() {
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
     if (paymentLoading) return;
-    const selectedLoanId = getLoanRecordId(selectedRepaymentLoan);
     const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : parseFloat(currentLoanBalance);
 
     if (!mpesaPhone || mpesaPhone.trim() === '') {
@@ -2747,7 +2759,7 @@ export default function App() {
     }
 
     if (currentLoanBalance <= 0) {
-      triggerAlert('You do not have an outstanding balance to repay for this loan product.', 'error-red');
+      triggerAlert('You do not have an outstanding balance to repay.', 'error-red');
       return;
     }
     if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > currentLoanBalance)) {
@@ -2783,9 +2795,8 @@ export default function App() {
         phoneNumber: formattedPhone, 
         amount: paymentAmount,
         userId: userProfile.id,
-        loanId: selectedLoanId || undefined,
-        accountReference: `Loan-${selectedLoanId || userProfile.loanId}`,
-        transactionDesc: `${getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan')} repayment`
+        accountReference: `Account-${userProfile.loanId || userProfile.id}`,
+        transactionDesc: 'Loan account repayment'
       });
       if (response.status === 200) {
         setPaymentStatus(response.data?.message || 'Check your phone and enter your M-Pesa PIN.');
@@ -2920,7 +2931,6 @@ export default function App() {
     setLatestLoan(null);
     setUserLoanRecords([]);
     setLoanBalancesById({});
-    setSelectedRepaymentLoanId('');
     setUserNotifications([]);
     setReadUserNotificationKeys([]);
     setLoanStatusError('');
@@ -3001,7 +3011,6 @@ export default function App() {
     setLatestLoan(loginLoan);
     setUserLoanRecords(loginLoanRecords);
     setLoanBalancesById(loginLoan ? { [getLoanRecordId(loginLoan)]: Number(data.loanBalance || getLoanRepaymentTotal(loginLoan)) } : {});
-    setSelectedRepaymentLoanId(loginLoan ? getLoanRecordId(loginLoan) : '');
     setUserNotifications([]);
     setReadUserNotificationKeys(readStoredUserNotificationKeys(profileId, data.email || cleanEmail));
     setLoanStatusError('');
@@ -3397,9 +3406,6 @@ export default function App() {
         }
         setLatestLoan(requestedLoan);
         setUserLoanRecords((currentRecords) => [requestedLoan, ...currentRecords.filter((loan) => getLoanRecordId(loan) !== getLoanRecordId(requestedLoan))]);
-        if (getLoanRecordId(requestedLoan)) {
-          setSelectedRepaymentLoanId(getLoanRecordId(requestedLoan));
-        }
         setLoanStatusError('');
         setAdminPendingCounts((currentCounts) => ({
           ...currentCounts,
@@ -3550,8 +3556,7 @@ export default function App() {
                   <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Clear outstanding loan balances on time to receive account standing discounts.</p>
                   <div className="repay-box-container" style={{ background: '#32bcde', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
                     <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
-                      Selected Loan: <strong>{getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan Product')}</strong><br />
-                      Balance Due: <strong>KES {Number(currentLoanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                      Total Outstanding Balance: <strong>KES {Number(currentLoanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
                     </p>
                     
                     <form onSubmit={(e) => handleMpesaPaymentSubmit(e, 'full')} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
@@ -3571,9 +3576,9 @@ export default function App() {
                         type="submit" 
                         className="pay-now-action-btn" 
                         style={{ width: '100%', padding: '14px', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', margin: 0 }} 
-                        disabled={paymentLoading}
+                        disabled={paymentLoading || loanStatusLoading || currentLoanBalance <= 0}
                       >
-                        {paymentLoading ? <LoadingSpinner label="Processing push..." /> : 'PAY VIA M-PESA'}
+                        {paymentLoading ? <LoadingSpinner label="Processing push..." /> : loanStatusLoading ? <LoadingSpinner label="Fetching balance..." /> : 'PAY VIA M-PESA'}
                       </button>
                     </form>
 
@@ -3792,11 +3797,12 @@ export default function App() {
                 <LoanListView
                   loans={userLoanRecords}
                   loanBalances={loanBalancesById}
+                  accountBalance={loanBalance}
                   loading={loanStatusLoading}
                   error={loanStatusError}
                   onRefresh={() => refreshLatestLoanStatus()}
-                  onPayFull={(loan) => openRepaymentForLoan(loan, 'repay_fully')}
-                  onPayPartial={(loan) => openRepaymentForLoan(loan, 'repay_partially')}
+                  onPayFull={() => openRepaymentView('repay_fully')}
+                  onPayPartial={() => openRepaymentView('repay_partially')}
                 />
               )}
               {currentView === 'notifications' && (
@@ -3814,7 +3820,7 @@ export default function App() {
                   <h2 style={{color: '#ec7411'}}>Partial loan Repayment Option</h2>
                   <p className="repay-text" style={{color: 'whitesmoke'}}>Repay your Loan with any amount available, we offer flexible Loan Repayment!</p>
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
-                    <p style={{color: 'white', marginBottom: '10px'}}>Selected Loan: <strong>{getLoanValue(selectedRepaymentLoan, ['loan_type', 'loanType'], 'Loan Product')}</strong><br />Total Due: <strong>{formatKes(currentLoanBalance)}</strong></p>
+                    <p style={{color: 'white', marginBottom: '10px'}}>Total Outstanding Debt: <strong>{formatKes(currentLoanBalance)}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
                       <label>Enter Amount To Pay (KES)</label>
                       <input 
@@ -3842,9 +3848,9 @@ export default function App() {
                       className="pay-now-action-btn" 
                       style={{ width: '100%', backgroundColor: '#eba22d' }} 
                       onClick={(e) => handleMpesaPaymentSubmit(e, 'partial')}
-                      disabled={paymentLoading || !isPartialPaymentValid}
+                      disabled={paymentLoading || loanStatusLoading || !isPartialPaymentValid}
                     >
-                      {paymentLoading ? <LoadingSpinner label="Processing..." /> : 'PAY'}
+                      {paymentLoading ? <LoadingSpinner label="Processing..." /> : loanStatusLoading ? <LoadingSpinner label="Fetching balance..." /> : 'PAY'}
                     </button>
                   </div>
                 </div>
