@@ -33,11 +33,39 @@ const ADMIN_EMAILS = String(process.env?.REACT_APP_ADMIN_EMAILS || process.env?.
   .filter(Boolean);
 const isAdminEmail = (email) => ADMIN_EMAILS.includes(normalizeEmail(email));
 
+const normalizeUserProfile = (profile = {}) => {
+  const id = profile.id || profile.userId || profile.user_id;
+  if (!id) return null;
+
+  const firstName = profile.firstName || profile.first_name || '';
+  const lastName = profile.lastName || profile.last_name || '';
+  const fallbackName = `${firstName} ${lastName}`.trim();
+
+  return {
+    id,
+    name: profile.name || fallbackName || 'Guest User',
+    email: normalizeEmail(profile.email),
+    phone: profile.phone || '',
+    loanId: profile.loanId || profile.loan_id || `LNX-2026-${id}`
+  };
+};
+
+const normalizeAuthSession = (session) => {
+  if (!session || typeof session !== 'object') return null;
+
+  const userProfile = normalizeUserProfile(session.userProfile || session.profile || session.user || session);
+  if (!userProfile) return null;
+
+  return {
+    ...session,
+    userProfile
+  };
+};
+
 const readStoredAuthSession = () => {
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return null;
-    const session = JSON.parse(window.localStorage.getItem(AUTH_SESSION_KEY) || 'null');
-    return session && session.userProfile?.id ? session : null;
+    if (typeof window === 'undefined' || !window.sessionStorage) return null;
+    return normalizeAuthSession(JSON.parse(window.sessionStorage.getItem(AUTH_SESSION_KEY) || 'null'));
   } catch {
     return null;
   }
@@ -45,15 +73,17 @@ const readStoredAuthSession = () => {
 
 const writeStoredAuthSession = (session) => {
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    window.sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
   } catch {}
 };
 
 const clearStoredAuthSession = () => {
   try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    window.localStorage.removeItem(AUTH_SESSION_KEY);
+    if (typeof window === 'undefined') return;
+    window.sessionStorage?.removeItem(AUTH_SESSION_KEY);
+    // Remove sessions saved by earlier versions, which otherwise reopen an old account.
+    window.localStorage?.removeItem(AUTH_SESSION_KEY);
   } catch {}
 };
 
@@ -376,10 +406,10 @@ function AuthView({
       <div className="auth-view">
         <h2>Account Login</h2>
         <p className="auth-subtitle">Welcome To Our Loan App</p>
-        <form onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(); }} className="auth-form" autoComplete="off">
+        <form onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(); }} className="auth-form">
           <div className="input-group">
             <label>Email: </label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required disabled={loginLoading} autoComplete="new-email" name="login-email" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="enter your email" required disabled={loginLoading} autoComplete="email" name="email" />
           </div>
           
           <div className="input-group">
@@ -392,8 +422,8 @@ function AuthView({
                 placeholder="enter password" 
                 style={{ width: '100%', paddingRight: '40px' }}
                 disabled={loginLoading}
-                autoComplete="new-password"
-                name="login-password"
+                autoComplete="current-password"
+                name="password"
                 required 
               />
               <span 
@@ -1006,6 +1036,12 @@ const getLatestLoanRecord = (records = []) => {
 };
 
 const getLoanRecordId = (loan) => String(getLoanValue(loan, ['id', 'loanId', 'loan_id'], '') || '');
+const getLoanReference = (loan) => {
+  const storedReference = String(getLoanValue(loan, ['loan_reference', 'loanReference'], '') || '').trim();
+  if (storedReference) return storedReference;
+  const loanId = getLoanRecordId(loan);
+  return /^\d+$/.test(loanId) ? `LN-${loanId.padStart(6, '0')}` : '';
+};
 const getLoanRepaymentTotal = (loan) => Math.abs(Number(getLoanValue(loan, ['repayment_amount', 'amount'], 0)) || 0);
 
 const getUserLoanRecordsFromTransactions = (records = []) => records
@@ -1134,6 +1170,7 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   const rawStatus = getLoanValue(latestLoan, ['status'], Number(loanBalance) > 0 ? 'Active' : '');
   const statusMeta = getLoanStatusMeta(rawStatus, hasLoanInfo, loanBalance);
   const loanType = getLoanValue(latestLoan, ['loan_type', 'loanType'], 'Loan Account');
+  const loanReference = getLoanReference(latestLoan);
   const loanAmount = getLoanValue(latestLoan, ['amount', 'loan_amount'], loanBalance);
   const dateApplied = getLoanValue(latestLoan, ['date_applied', 'createdAt', 'created_at', 'date']);
   const nationalIdNumber = getLoanValue(latestLoan, ['national_id_number', 'nationalIdNumber'], 'Not available');
@@ -1169,6 +1206,12 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
                   <span>Loan Type</span>
                   <strong>{loanType}</strong>
                 </div>
+                {loanReference && (
+                  <div className="loan-status-detail">
+                    <span>Loan Reference</span>
+                    <strong>{loanReference}</strong>
+                  </div>
+                )}
                 <div className="loan-status-detail">
                   <span>Requested Amount</span>
                   <strong>{formatKes(loanAmount)}</strong>
@@ -1248,7 +1291,7 @@ function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loadi
 
                 return (
                   <tr key={loanId || `${getLoanValue(loan, ['loan_type'], 'loan')}-${getLoanValue(loan, ['date_applied'], '')}`}>
-                    <td><strong>{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan Product')}</strong></td>
+                    <td><strong>{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan Product')}</strong>{getLoanReference(loan) && <><br /><small>{getLoanReference(loan)}</small></>}</td>
                     <td>{formatKes(getLoanValue(loan, ['principal_amount', 'amount'], 0))}</td>
                     <td>{formatKes(balance)}</td>
                     <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
@@ -2334,6 +2377,7 @@ export default function App() {
   const [appliedAmount, setAppliedAmount] = useState('');
   const [customAmount, setCustomAmount] = useState('');
   const [repaymentAmount, setRepaymentAmount] = useState('');
+  const [selectedRepaymentLoanId, setSelectedRepaymentLoanId] = useState('');
   const [loanDurationMonths, setLoanDurationMonths] = useState(1);
   const [nationalIdNumber, setNationalIdNumber] = useState('');
   const [loanRequestLoading, setLoanRequestLoading] = useState(false);
@@ -2374,13 +2418,8 @@ export default function App() {
     if (!session) return;
 
     const sessionEmail = normalizeEmail(session.userProfile?.email);
-    if (session.isAdminUser || isAdminEmail(sessionEmail)) {
-      clearStoredAuthSession();
-      return;
-    }
-
     setIsLoggedIn(true);
-    setIsAdminUser(false);
+    setIsAdminUser(Boolean(session.isAdminUser || isAdminEmail(sessionEmail)));
     setCurrentView(session.currentView || 'dashboard_home');
     setSettingsMode(session.settingsMode || 'home');
     setLoanBalance(Number(session.loanBalance || 0));
@@ -2393,11 +2432,6 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn || !userProfile.id) return;
-    if (isAdminUser || isAdminEmail(userProfile.email)) {
-      clearStoredAuthSession();
-      return;
-    }
-
     writeStoredAuthSession({
       isAdminUser,
       currentView,
@@ -2433,8 +2467,20 @@ export default function App() {
   const loanQuote = getLoanQuote(selectedLoanAmountValue, selectedLoan?.rate, loanDurationMonths);
   const partialPaymentValue = parseCurrencyInput(repaymentAmount);
   const currentLoanBalance = Math.max(Number(loanBalance || 0), 0);
-  const isPartialPaymentValid = Number.isFinite(partialPaymentValue) && partialPaymentValue > 0 && partialPaymentValue <= currentLoanBalance;
-  const remainingAfterPartial = isPartialPaymentValid ? Math.max(currentLoanBalance - partialPaymentValue, 0) : currentLoanBalance;
+  const repayableLoans = userLoanRecords.filter((loan) => {
+    const loanId = getLoanRecordId(loan);
+    return loanId && isApprovedLoanStatus(loan) && Number(loanBalancesById[loanId] ?? getLoanRepaymentTotal(loan)) > 0;
+  });
+  const selectedRepaymentLoan = repayableLoans.find((loan) => getLoanRecordId(loan) === selectedRepaymentLoanId) || null;
+  const selectedRepaymentBalance = selectedRepaymentLoan
+    ? Math.max(Number(loanBalancesById[getLoanRecordId(selectedRepaymentLoan)] ?? getLoanRepaymentTotal(selectedRepaymentLoan)), 0)
+    : 0;
+  const repaymentTargetBalance = selectedRepaymentLoan ? selectedRepaymentBalance : currentLoanBalance;
+  const isPartialPaymentValid = Boolean(selectedRepaymentLoan)
+    && Number.isFinite(partialPaymentValue)
+    && partialPaymentValue > 0
+    && partialPaymentValue <= repaymentTargetBalance;
+  const remainingAfterPartial = isPartialPaymentValid ? Math.max(repaymentTargetBalance - partialPaymentValue, 0) : repaymentTargetBalance;
   const hasNationalIdInput = nationalIdNumber.length > 0;
   const isNationalIdReady = isValidKenyanNationalId(nationalIdNumber);
   const pendingSignupNotifications = signupNotifications.filter(isUserPendingVerification);
@@ -2693,6 +2739,7 @@ export default function App() {
     setPaymentStatus('');
     setPaymentError(false);
     setRepaymentAmount('');
+    setSelectedRepaymentLoanId('');
     setRepayDropdown(true);
     navigateToView(viewName);
     refreshLatestLoanStatus(userProfile.id);
@@ -2751,18 +2798,28 @@ export default function App() {
   const handleMpesaPaymentSubmit = async (e, variant = 'full') => {
     e.preventDefault();
     if (paymentLoading) return;
-    const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : parseFloat(currentLoanBalance);
+    const isAllLoansSettlement = variant === 'full' && selectedRepaymentLoanId === 'all';
+    const targetBalance = isAllLoansSettlement ? currentLoanBalance : selectedRepaymentBalance;
+    const paymentAmount = variant === 'partial' ? parseCurrencyInput(repaymentAmount) : targetBalance;
 
     if (!mpesaPhone || mpesaPhone.trim() === '') {
       triggerAlert('Please enter a valid M-Pesa phone number.', 'error-red');
       return;
     }
 
-    if (currentLoanBalance <= 0) {
-      triggerAlert('You do not have an outstanding balance to repay.', 'error-red');
+    if (variant === 'full' && !selectedRepaymentLoanId) {
+      triggerAlert('Please select a loan, or choose all loans for a full account settlement.', 'error-red');
       return;
     }
-    if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > currentLoanBalance)) {
+    if (variant === 'partial' && !selectedRepaymentLoan) {
+      triggerAlert('Please select the loan you want to repay partially.', 'error-red');
+      return;
+    }
+    if (targetBalance <= 0) {
+      triggerAlert('The selected loan has no outstanding balance to repay.', 'error-red');
+      return;
+    }
+    if (variant === 'partial' && (!paymentAmount || paymentAmount <= 0 || paymentAmount > targetBalance)) {
       triggerAlert('Please enter a valid partial payment amount.', 'error-red');
       return;
     }
@@ -2795,8 +2852,9 @@ export default function App() {
         phoneNumber: formattedPhone, 
         amount: paymentAmount,
         userId: userProfile.id,
+        loanId: isAllLoansSettlement ? null : getLoanRecordId(selectedRepaymentLoan),
         accountReference: `Account-${userProfile.loanId || userProfile.id}`,
-        transactionDesc: 'Loan account repayment'
+        transactionDesc: isAllLoansSettlement ? 'Full repayment of all loans' : `${variant === 'partial' ? 'Partial' : 'Full'} repayment of selected loan`
       });
       if (response.status === 200) {
         setPaymentStatus(response.data?.message || 'Check your phone and enter your M-Pesa PIN.');
@@ -2943,6 +3001,7 @@ export default function App() {
     setPassword('');
     setConfirmPassword('');
     setRepaymentAmount('');
+    setSelectedRepaymentLoanId('');
     setNationalIdNumber('');
     setLoanRequestLoading(false);
     clearStoredAuthSession();
@@ -3311,6 +3370,13 @@ export default function App() {
         markUserNotificationsRead();
       }
       navigateToView(viewName);
+    } else if (['repay_fully', 'repay_partially'].includes(viewName)) {
+      setPaymentStatus('');
+      setPaymentError(false);
+      setRepaymentAmount('');
+      setSelectedRepaymentLoanId('');
+      setNotificationPanelMode('user');
+      navigateToView(viewName);
     } else {
       setNotificationPanelMode('user');
       navigateToView(viewName);
@@ -3387,6 +3453,7 @@ export default function App() {
       if (response.ok) {
         const requestedLoan = data.loan || data.latestLoan || {
           id: data.loanId || data.id || `local-${Date.now()}`,
+          loan_reference: data.loanReference,
           loan_type: selectedLoan.name,
           amount: data.repaymentAmount || loanQuote.repaymentTotal,
           principal_amount: data.principalAmount || finalAmount,
@@ -3553,13 +3620,24 @@ export default function App() {
               {currentView === 'repay_fully' && (
                 <div className="view-fade-in action-panel-card">
                   <h2>Full Settlement Portal</h2>
-                  <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Clear outstanding loan balances on time to receive account standing discounts.</p>
+                  <p className="discount" style={{color: 'white', margin: '0 0 15px 0'}}>Choose one loan to settle, or select all loans to clear your entire outstanding balance.</p>
                   <div className="repay-box-container" style={{ background: '#32bcde', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
                     <p style={{ color: '#fff', fontSize: '16px', margin: 0, fontWeight: '500' }}>
-                      Total Outstanding Balance: <strong>KES {Number(currentLoanBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                      {selectedRepaymentLoanId === 'all' ? 'Total Outstanding Balance' : 'Selected Loan Balance'}: <strong>{formatKes(selectedRepaymentLoanId === 'all' ? currentLoanBalance : selectedRepaymentBalance)}</strong>
                     </p>
                     
                     <form onSubmit={(e) => handleMpesaPaymentSubmit(e, 'full')} style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
+                      <div className="input-group" style={{ margin: 0 }}>
+                        <label style={{ color: '#fff' }}>Loan to repay fully</label>
+                        <select value={selectedRepaymentLoanId} onChange={(e) => setSelectedRepaymentLoanId(e.target.value)} required>
+                          <option value="">Select a loan</option>
+                          <option value="all">All loans — clear {formatKes(currentLoanBalance)}</option>
+                          {repayableLoans.map((loan) => {
+                            const loanId = getLoanRecordId(loan);
+                            return <option key={loanId} value={loanId}>{getLoanReference(loan) ? `${getLoanReference(loan)} — ` : ''}{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan')} — {formatKes(loanBalancesById[loanId] ?? getLoanRepaymentTotal(loan))}</option>;
+                          })}
+                        </select>
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', alignItems: 'flex-start' }}>
                         <label style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>M-PESA Phone Number</label>
                         <input 
@@ -3576,7 +3654,7 @@ export default function App() {
                         type="submit" 
                         className="pay-now-action-btn" 
                         style={{ width: '100%', padding: '14px', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', margin: 0 }} 
-                        disabled={paymentLoading || loanStatusLoading || currentLoanBalance <= 0}
+                        disabled={paymentLoading || loanStatusLoading || !selectedRepaymentLoanId || (selectedRepaymentLoanId === 'all' ? currentLoanBalance <= 0 : selectedRepaymentBalance <= 0)}
                       >
                         {paymentLoading ? <LoadingSpinner label="Processing push..." /> : loanStatusLoading ? <LoadingSpinner label="Fetching balance..." /> : 'PAY VIA M-PESA'}
                       </button>
@@ -3801,8 +3879,14 @@ export default function App() {
                   loading={loanStatusLoading}
                   error={loanStatusError}
                   onRefresh={() => refreshLatestLoanStatus()}
-                  onPayFull={() => openRepaymentView('repay_fully')}
-                  onPayPartial={() => openRepaymentView('repay_partially')}
+                  onPayFull={(loan) => {
+                    openRepaymentView('repay_fully');
+                    setSelectedRepaymentLoanId(getLoanRecordId(loan));
+                  }}
+                  onPayPartial={(loan) => {
+                    openRepaymentView('repay_partially');
+                    setSelectedRepaymentLoanId(getLoanRecordId(loan));
+                  }}
                 />
               )}
               {currentView === 'notifications' && (
@@ -3818,9 +3902,19 @@ export default function App() {
               {currentView === 'repay_partially' && (
                 <div className="view-fade-in action-panel-card">
                   <h2 style={{color: '#ec7411'}}>Partial loan Repayment Option</h2>
-                  <p className="repay-text" style={{color: 'whitesmoke'}}>Repay your Loan with any amount available, we offer flexible Loan Repayment!</p>
+                  <p className="repay-text" style={{color: 'whitesmoke'}}>Choose the loan you want to repay, then enter any amount up to that loan's outstanding balance.</p>
                   <div className="repay-box" style={{ background: '#22aeac', padding: '20px', borderRadius: '8px', border: '1px solid #e1e8ed', marginTop: '15px' }}>
-                    <p style={{color: 'white', marginBottom: '10px'}}>Total Outstanding Debt: <strong>{formatKes(currentLoanBalance)}</strong></p>
+                    <div className="input-group" style={{ marginBottom: '15px' }}>
+                      <label>Select loan to repay partially</label>
+                      <select value={selectedRepaymentLoanId} onChange={(e) => { setSelectedRepaymentLoanId(e.target.value); setRepaymentAmount(''); }}>
+                        <option value="">Select a loan</option>
+                        {repayableLoans.map((loan) => {
+                          const loanId = getLoanRecordId(loan);
+                          return <option key={loanId} value={loanId}>{getLoanReference(loan) ? `${getLoanReference(loan)} — ` : ''}{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan')} — {formatKes(loanBalancesById[loanId] ?? getLoanRepaymentTotal(loan))}</option>;
+                        })}
+                      </select>
+                    </div>
+                    <p style={{color: 'white', marginBottom: '10px'}}>Selected Loan Balance: <strong>{formatKes(selectedRepaymentBalance)}</strong></p>
                     <div className="input-group" style={{ marginBottom: '15px' }}>
                       <label>Enter Amount To Pay (KES)</label>
                       <input 
@@ -3840,6 +3934,10 @@ export default function App() {
                         <span>Remaining Balance</span>
                         <strong>{formatKes(remainingAfterPartial)}</strong>
                       </div>
+                    </div>
+                    <div className="input-group" style={{ marginBottom: '15px' }}>
+                      <label>M-PESA Phone Number</label>
+                      <input type="tel" value={mpesaPhone} onChange={(e) => setMpesaPhone(e.target.value)} placeholder="e.g. 254712345678" required />
                     </div>
                     {!isPartialPaymentValid && repaymentAmount && (
                       <div className="loan-status-error">Enter an amount above KES 0 and not more than your outstanding balance.</div>
