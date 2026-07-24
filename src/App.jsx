@@ -599,6 +599,7 @@ function TransactionHistory({ userId }) {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>Loan Number</th>
                 <th>Transaction Type</th>
                 <th>Amount</th>
                 <th>Status</th>
@@ -615,10 +616,12 @@ function TransactionHistory({ userId }) {
                     ? 'Awaiting callback'
                     : t.account_number || '-'
                 );
+                const loanNumber = getLoanReference(t) || (type === 'Repayment' ? 'All loans' : '-');
 
                 return (
                   <tr key={t.transaction_id || t.id}>
                     <td>{formatLoanDate(t.completed_at || t.date_applied)}</td>
+                    <td>{loanNumber}</td>
                     <td>{type}</td>
                     <td className={Number(t.amount) < 0 ? 'amount-credit' : 'amount-debit'}>
                       {Number(t.amount) < 0 ? '-' : '+'} {formatKes(Math.abs(Number(t.amount)))}
@@ -1043,6 +1046,7 @@ const getLoanReference = (loan) => {
   return /^\d+$/.test(loanId) ? `LN-${loanId.padStart(6, '0')}` : '';
 };
 const getLoanRepaymentTotal = (loan) => Math.abs(Number(getLoanValue(loan, ['repayment_amount', 'amount'], 0)) || 0);
+const getLoanAppliedAmount = (loan) => Math.abs(Number(getLoanValue(loan, ['principal_amount', 'principalAmount', 'amount'], 0)) || 0);
 
 const getUserLoanRecordsFromTransactions = (records = []) => records
   .filter((record) => !isRepaymentRecord(record))
@@ -1099,6 +1103,46 @@ const buildLoanBalances = (records = []) => {
       balances[loanId] = Math.max(balances[loanId] - amountApplied, 0);
       remainingAccountRepayment -= amountApplied;
     });
+
+  return balances;
+};
+
+const buildLoanAppliedBalances = (records = []) => {
+  const loans = getUserLoanRecordsFromTransactions(records);
+  const repayments = records.filter(isRepaymentRecord);
+  const balances = {};
+
+  loans.forEach((loan) => {
+    const loanId = getLoanRecordId(loan);
+    if (loanId) balances[loanId] = getLoanAppliedAmount(loan);
+  });
+
+  repayments.forEach((repayment) => {
+    const status = normalizeStatusText(getLoanStatusText(repayment) || getLoanValue(repayment, ['display_status'], ''));
+    const loanId = String(getLoanValue(repayment, ['loan_id', 'loanId'], '') || '');
+    const repaidAmount = Math.abs(Number(getLoanValue(repayment, ['amount'], 0)) || 0);
+
+    if (statusIncludesAny(status, ['completed', 'paid']) && loanId && Object.prototype.hasOwnProperty.call(balances, loanId)) {
+      balances[loanId] = Math.max(balances[loanId] - repaidAmount, 0);
+    }
+  });
+
+  let unallocatedRepaidAmount = repayments
+    .filter((repayment) => !getLoanValue(repayment, ['loan_id', 'loanId'], ''))
+    .reduce((sum, repayment) => {
+      const status = normalizeStatusText(getLoanStatusText(repayment) || getLoanValue(repayment, ['display_status'], ''));
+      return statusIncludesAny(status, ['completed', 'paid'])
+        ? sum + Math.abs(Number(getLoanValue(repayment, ['amount'], 0)) || 0)
+        : sum;
+    }, 0);
+
+  loans.slice().reverse().forEach((loan) => {
+    const loanId = getLoanRecordId(loan);
+    if (!loanId || unallocatedRepaidAmount <= 0 || !Object.prototype.hasOwnProperty.call(balances, loanId)) return;
+    const appliedRepayment = Math.min(balances[loanId], unallocatedRepaidAmount);
+    balances[loanId] -= appliedRepayment;
+    unallocatedRepaidAmount -= appliedRepayment;
+  });
 
   return balances;
 };
@@ -1247,9 +1291,13 @@ function LoanStatusView({ latestLoan, loanBalance, loading, error, onRefresh }) 
   );
 }
 
-function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loading, error, onRefresh, onPayFull, onPayPartial }) {
+function LoanListView({ loans = [], loanAppliedBalances = {}, accountBalance = 0, loading, error, onRefresh, onPayFull, onPayPartial }) {
   const visibleLoans = loans.filter((loan) => !isRepaymentRecord(loan));
   const totalOutstanding = Math.max(Number(accountBalance || 0), 0);
+  const totalLoanBalance = visibleLoans.reduce((sum, loan) => {
+    const loanId = getLoanRecordId(loan);
+    return sum + Math.max(Number(loanAppliedBalances[loanId] ?? getLoanAppliedAmount(loan)), 0);
+  }, 0);
 
   return (
     <div className="view-fade-in loan-list-view">
@@ -1266,7 +1314,7 @@ function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loadi
       {error && <div className="loan-status-error">{error}</div>}
 
       {loading && visibleLoans.length === 0 ? (
-        <TableSkeleton rows={4} columns={6} />
+        <TableSkeleton rows={4} columns={7} />
       ) : visibleLoans.length === 0 ? (
         <p className="loan-status-empty-text">No loan products taken yet.</p>
       ) : (
@@ -1275,8 +1323,9 @@ function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loadi
             <thead>
               <tr>
                 <th>Loan Product</th>
-                <th>Principal</th>
-                <th>Balance</th>
+                <th>Requested Loan</th>
+                <th>Paid Amount</th>
+                <th>Loan Balance</th>
                 <th>Status</th>
                 <th>Due Date</th>
                 <th>Payment</th>
@@ -1285,15 +1334,18 @@ function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loadi
             <tbody>
               {visibleLoans.map((loan) => {
                 const loanId = getLoanRecordId(loan);
-                const balance = Math.max(Number(loanBalances[loanId] ?? getLoanRepaymentTotal(loan)), 0);
+                const loanAppliedBalance = Math.max(Number(loanAppliedBalances[loanId] ?? getLoanAppliedAmount(loan)), 0);
+                const requestedAmount = getLoanAppliedAmount(loan);
+                const repaidAmount = Math.max(requestedAmount - loanAppliedBalance, 0);
                 const statusLabel = titleCaseStatus(getLoanStatusText(loan) || getLoanValue(loan, ['display_status'], 'Pending'));
                 const canPay = totalOutstanding > 0 && isApprovedLoanStatus(loan);
 
                 return (
                   <tr key={loanId || `${getLoanValue(loan, ['loan_type'], 'loan')}-${getLoanValue(loan, ['date_applied'], '')}`}>
                     <td><strong>{getLoanValue(loan, ['loan_type', 'loanType'], 'Loan Product')}</strong>{getLoanReference(loan) && <><br /><small>{getLoanReference(loan)}</small></>}</td>
-                    <td>{formatKes(getLoanValue(loan, ['principal_amount', 'amount'], 0))}</td>
-                    <td>{formatKes(balance)}</td>
+                    <td>{formatKes(requestedAmount)}</td>
+                    <td>{formatKes(repaidAmount)}</td>
+                    <td>{formatKes(loanAppliedBalance)}</td>
                     <td><span className={`table-status ${getTableStatusClass(statusLabel)}`}>{statusLabel}</span></td>
                     <td>{formatLoanDate(getLoanValue(loan, ['due_date', 'dueDate'], ''))}</td>
                     <td>
@@ -1308,8 +1360,8 @@ function LoanListView({ loans = [], loanBalances = {}, accountBalance = 0, loadi
             </tbody>
             <tfoot>
               <tr className="loan-list-total-row">
-                <td colSpan="2">Total Outstanding</td>
-                <td>{formatKes(totalOutstanding)}</td>
+                <td colSpan="3">Total Loan Balance</td>
+                <td>{formatKes(totalLoanBalance)}</td>
                 <td colSpan="3"></td>
               </tr>
             </tfoot>
@@ -1470,6 +1522,10 @@ function AdminView({
   const [adminSearchTerm, setAdminSearchTerm] = useState('');
   const [loanStatusFilter, setLoanStatusFilter] = useState('all');
   const [detailModalRecord, setDetailModalRecord] = useState(null);
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastEmail, setBroadcastEmail] = useState(true);
+  const [broadcastSms, setBroadcastSms] = useState(true);
   const recentlyReviewedLoanTimersRef = useRef({});
   const adminFeedbackTimerRef = useRef(null);
   const BASE_URL = API_BASE_URL;
@@ -1541,6 +1597,7 @@ function AdminView({
       getUserRecordEmail(record),
       getUserRecordId(record),
       getLoanValue(record, ['user_id', 'userId'], ''),
+      getLoanReference(record),
       getLoanValue(record, ['national_id_number', 'nationalIdNumber', 'id_number', 'idNumber'], '')
     ].map(normalizeStatusText).filter(Boolean);
 
@@ -1907,6 +1964,38 @@ function AdminView({
     };
   };
 
+  const handleBroadcastSubmit = async (event) => {
+    event.preventDefault();
+    if (!broadcastSubject.trim() || !broadcastMessage.trim()) {
+      showAdminFeedback({ message: 'Enter both a subject and message.', type: 'error' }, 5000);
+      return;
+    }
+    if (!broadcastEmail && !broadcastSms) {
+      showAdminFeedback({ message: 'Choose email, SMS, or both.', type: 'error' }, 5000);
+      return;
+    }
+
+    setActionLoadingKey('broadcast');
+    clearAdminFeedback();
+    try {
+      const payload = await runAdminMutation('/api/admin/broadcasts', {
+        subject: broadcastSubject.trim(),
+        message: broadcastMessage.trim(),
+        sendEmail: broadcastEmail,
+        sendSms: broadcastSms
+      }, 'Broadcast');
+      const emailSummary = `Email: ${payload.email?.sent || 0} sent, ${payload.email?.failed || 0} failed.`;
+      const smsSummary = `SMS: ${payload.sms?.sent || 0} sent, ${payload.sms?.failed || 0} failed.`;
+      showAdminFeedback({ message: `Broadcast processed for ${payload.recipients || 0} recipients. ${emailSummary} ${smsSummary}`, type: 'success' }, 8000);
+      setBroadcastSubject('');
+      setBroadcastMessage('');
+    } catch (broadcastError) {
+      showAdminFeedback({ message: broadcastError.message || 'Could not send the broadcast.', type: 'error' }, 6000);
+    } finally {
+      setActionLoadingKey('');
+    }
+  };
+
   const openDetailModal = (record, type) => {
     setDetailModalRecord({ record, type });
   };
@@ -1999,6 +2088,7 @@ function AdminView({
         <button className={`auth-submit-btn ${activeTab === 'users' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('users')}>Users ({filteredUsers.length})</button>
         <button className={`auth-submit-btn ${activeTab === 'loans' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('loans')}>Loans ({filteredLoans.length})</button>
         <button className={`auth-submit-btn ${activeTab === 'repayments' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('repayments')}>Repayments ({filteredRepayments.length})</button>
+        <button className={`auth-submit-btn ${activeTab === 'broadcast' ? '' : 'cancel-btn'}`} onClick={() => setActiveTab('broadcast')}>Broadcast</button>
       </div>
 
       <div className="admin-filter-bar">
@@ -2039,6 +2129,44 @@ function AdminView({
           </select>
         </div>
       </div>
+
+      {activeTab === 'broadcast' && (
+        <section className="admin-panel-block">
+          <h3>Broadcast Message</h3>
+          <p className="admin-muted-text">Send one message to every registered user using their saved email address and phone number.</p>
+          <form onSubmit={handleBroadcastSubmit} className="admin-panel-stack">
+            <div className="input-group">
+              <label>Subject</label>
+              <input
+                type="text"
+                value={broadcastSubject}
+                onChange={(event) => setBroadcastSubject(event.target.value)}
+                maxLength="160"
+                placeholder="Important account update"
+                required
+              />
+            </div>
+            <div className="input-group">
+              <label>Message</label>
+              <textarea
+                value={broadcastMessage}
+                onChange={(event) => setBroadcastMessage(event.target.value)}
+                maxLength="1000"
+                rows="6"
+                placeholder="Write the message to send to your customers."
+                required
+              />
+            </div>
+            <div className="form-action-buttons">
+              <label><input type="checkbox" checked={broadcastEmail} onChange={(event) => setBroadcastEmail(event.target.checked)} /> Email</label>
+              <label><input type="checkbox" checked={broadcastSms} onChange={(event) => setBroadcastSms(event.target.checked)} /> SMS</label>
+            </div>
+            <button type="submit" className="auth-submit-btn" disabled={actionLoadingKey === 'broadcast'}>
+              {actionLoadingKey === 'broadcast' ? 'Sending Broadcast...' : `Send to ${allUsers.length} Users`}
+            </button>
+          </form>
+        </section>
+      )}
 
       {activeTab === 'overview' && (
         <div className="admin-panel-stack">
@@ -2092,7 +2220,7 @@ function AdminView({
               <div className="responsive-table-shell">
                 <table className="data-table">
                   <thead><tr>
-                    <th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
+                    <th>Loan Number</th><th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Due Date</th><th>Status</th><th>Action</th>
                   </tr></thead>
                   <tbody>{filteredPendingLoanRequests.map((loan) => {
                     const loanId = getLoanValue(loan, ['id', 'loanId', 'loan_id'], '');
@@ -2100,6 +2228,7 @@ function AdminView({
                     const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(loan) || 'Pending');
                     return (
                       <tr key={loanId || `${getUserDisplayName(loan)}-${getLoanValue(loan, ['loan_type', 'loanType'], '')}`} className="clickable-table-row" onClick={() => openDetailModal(loan, 'loan')}>
+                        <td>{getLoanReference(loan) || '-'}</td>
                         <td>{getUserDisplayName(loan)}</td>
                         <td>{getLoanValue(loan, ['national_id_number', 'nationalIdNumber'], '-')}</td>
                         <td>{getLoanValue(loan, ['loan_type', 'loanType', 'transaction_type'], '-')}</td>
@@ -2186,13 +2315,14 @@ function AdminView({
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
-              <th>ID</th><th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
+              <th>Loan Number</th><th>ID</th><th>User</th><th>ID No.</th><th>Type</th><th>Principal</th><th>Repayment</th><th>Receipt</th><th>Status</th><th>Date</th><th>Action</th>
             </tr></thead>
             <tbody>{filteredLoans.map(l => {
               const reviewNotice = recentlyReviewedLoans[l.id];
               const statusLabel = reviewNotice?.label || titleCaseStatus(getLoanStatusText(l) || 'Pending');
               return (
                 <tr key={l.id} className="clickable-table-row" onClick={() => openDetailModal(l, 'loan')}>
+                  <td>{getLoanReference(l) || '-'}</td>
                   <td>{l.id}</td>
                   <td>{getUserDisplayName(l)}</td>
                   <td>{l.national_id_number || '-'}</td>
@@ -2243,13 +2373,14 @@ function AdminView({
         <div className="responsive-table-shell">
           <table className="data-table">
             <thead><tr>
-              <th>ID</th><th>User</th><th>Amount</th><th>Mode</th><th>Receipt</th><th>Provider Ref</th><th>Status</th><th>Date</th>
+              <th>ID</th><th>Loan Number</th><th>User</th><th>Amount</th><th>Mode</th><th>Receipt</th><th>Provider Ref</th><th>Status</th><th>Date</th>
             </tr></thead>
             <tbody>{filteredRepayments.map((repayment) => {
               const statusLabel = titleCaseStatus(repayment.status || 'Pending');
               return (
                 <tr key={`${repayment.transaction_type || 'repayment'}-${repayment.id}`} className="clickable-table-row" onClick={() => openDetailModal(repayment, 'repayment')}>
                   <td>{repayment.id}</td>
+                  <td>{getLoanReference(repayment) || 'All loans'}</td>
                   <td>{getUserDisplayName(repayment)}</td>
                   <td className="amount-credit">{formatKes(Math.abs(Number(repayment.amount || 0)))}</td>
                   <td>{repayment.payment_mode || '-'}</td>
@@ -2278,6 +2409,7 @@ function AdminView({
 
             <div className="admin-detail-grid">
               <div><span>User ID</span><strong>{getRecordUserId(modalRecord) || '-'}</strong></div>
+              {getLoanReference(modalRecord) && <div><span>Loan Number</span><strong>{getLoanReference(modalRecord)}</strong></div>}
               <div><span>ID Number</span><strong>{modalHistory.nationalIdNumber || '-'}</strong></div>
               <div><span>Total Loans Taken</span><strong>{modalHistory.totalLoansTaken}</strong></div>
               <div><span>Repayment Success</span><strong>{modalHistory.repaymentSuccessRate}%</strong></div>
@@ -2288,7 +2420,7 @@ function AdminView({
             {detailModalRecord.type === 'loan' && (
               <div className="admin-modal-loan-card">
                 <span>Selected loan</span>
-                <strong>{getLoanValue(modalRecord, ['loan_type', 'loanType', 'transaction_type'], 'Loan')}</strong>
+                <strong>{getLoanReference(modalRecord) ? `${getLoanReference(modalRecord)} — ` : ''}{getLoanValue(modalRecord, ['loan_type', 'loanType', 'transaction_type'], 'Loan')}</strong>
                 <p>{formatKes(getLoanValue(modalRecord, ['repayment_amount', 'amount'], 0))} &middot; {titleCaseStatus(getLoanStatusText(modalRecord) || 'Pending')}</p>
                 {isPendingLoanStatus(modalRecord) && !modalReviewNotice && (
                   <div className="admin-action-row">
@@ -2320,7 +2452,7 @@ function AdminView({
                   <p className="admin-muted-text">No loan history.</p>
                 ) : modalHistory.userLoans.slice(0, 5).map((loan) => (
                   <div key={`modal-loan-${loan.id}`} className="admin-history-item">
-                    <strong>{getLoanValue(loan, ['loan_type', 'transaction_type'], 'Loan')}</strong>
+                    <strong>{getLoanReference(loan) ? `${getLoanReference(loan)} — ` : ''}{getLoanValue(loan, ['loan_type', 'transaction_type'], 'Loan')}</strong>
                     <span>{formatKes(getLoanValue(loan, ['repayment_amount', 'amount'], 0))} &middot; {titleCaseStatus(getLoanStatusText(loan) || 'Pending')}</span>
                   </div>
                 ))}
@@ -2389,6 +2521,7 @@ export default function App() {
   const [latestLoan, setLatestLoan] = useState(null);
   const [userLoanRecords, setUserLoanRecords] = useState([]);
   const [loanBalancesById, setLoanBalancesById] = useState({});
+  const [loanAppliedBalancesById, setLoanAppliedBalancesById] = useState({});
   const [userNotifications, setUserNotifications] = useState([]);
   const [readUserNotificationKeys, setReadUserNotificationKeys] = useState([]);
   const [loanStatusLoading, setLoanStatusLoading] = useState(false);
@@ -2426,6 +2559,7 @@ export default function App() {
     setLatestLoan(session.latestLoan || null);
     setUserLoanRecords(Array.isArray(session.userLoanRecords) ? session.userLoanRecords : []);
     setLoanBalancesById(session.loanBalancesById || {});
+    setLoanAppliedBalancesById(session.loanAppliedBalancesById || {});
     setReadUserNotificationKeys(Array.isArray(session.readUserNotificationKeys) ? session.readUserNotificationKeys : []);
     setUserProfile(session.userProfile);
   }, []);
@@ -2440,10 +2574,11 @@ export default function App() {
       latestLoan,
       userLoanRecords,
       loanBalancesById,
+      loanAppliedBalancesById,
       readUserNotificationKeys,
       userProfile
     });
-  }, [isLoggedIn, isAdminUser, currentView, settingsMode, loanBalance, latestLoan, userLoanRecords, loanBalancesById, readUserNotificationKeys, userProfile]);
+  }, [isLoggedIn, isAdminUser, currentView, settingsMode, loanBalance, latestLoan, userLoanRecords, loanBalancesById, loanAppliedBalancesById, readUserNotificationKeys, userProfile]);
 
   useEffect(() => {
     if (ALLOW_LOCAL_AUTH_FALLBACK || typeof window === 'undefined' || !window.localStorage) return;
@@ -2712,6 +2847,7 @@ export default function App() {
         resolvedBalance = Number(balanceData.loanBalance || 0);
         setLoanBalance(resolvedBalance);
         setLoanBalancesById(buildLoanBalances(records));
+        setLoanAppliedBalancesById(buildLoanAppliedBalances(records));
       } else if (transactionsResponse.ok) {
         resolvedBalance = records.reduce((total, record) => {
           const status = String(record.status || record.display_status || '').toLowerCase();
@@ -2720,6 +2856,7 @@ export default function App() {
         }, 0);
         setLoanBalance(resolvedBalance);
         setLoanBalancesById(buildLoanBalances(records));
+        setLoanAppliedBalancesById(buildLoanAppliedBalances(records));
       }
 
       if (transactionsResponse.ok) {
@@ -2989,6 +3126,7 @@ export default function App() {
     setLatestLoan(null);
     setUserLoanRecords([]);
     setLoanBalancesById({});
+    setLoanAppliedBalancesById({});
     setUserNotifications([]);
     setReadUserNotificationKeys([]);
     setLoanStatusError('');
@@ -3070,6 +3208,7 @@ export default function App() {
     setLatestLoan(loginLoan);
     setUserLoanRecords(loginLoanRecords);
     setLoanBalancesById(loginLoan ? { [getLoanRecordId(loginLoan)]: Number(data.loanBalance || getLoanRepaymentTotal(loginLoan)) } : {});
+    setLoanAppliedBalancesById(buildLoanAppliedBalances(loginLoanRecords));
     setUserNotifications([]);
     setReadUserNotificationKeys(readStoredUserNotificationKeys(profileId, data.email || cleanEmail));
     setLoanStatusError('');
@@ -3473,6 +3612,10 @@ export default function App() {
         }
         setLatestLoan(requestedLoan);
         setUserLoanRecords((currentRecords) => [requestedLoan, ...currentRecords.filter((loan) => getLoanRecordId(loan) !== getLoanRecordId(requestedLoan))]);
+        setLoanAppliedBalancesById((currentBalances) => ({
+          ...currentBalances,
+          [getLoanRecordId(requestedLoan)]: getLoanAppliedAmount(requestedLoan)
+        }));
         setLoanStatusError('');
         setAdminPendingCounts((currentCounts) => ({
           ...currentCounts,
@@ -3874,7 +4017,7 @@ export default function App() {
               {currentView === 'loan_lists' && (
                 <LoanListView
                   loans={userLoanRecords}
-                  loanBalances={loanBalancesById}
+                  loanAppliedBalances={loanAppliedBalancesById}
                   accountBalance={loanBalance}
                   loading={loanStatusLoading}
                   error={loanStatusError}
